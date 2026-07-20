@@ -1,0 +1,43 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issues:** do NOT file here — see [SECURITY.md](../../SECURITY.md) for private reporting.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Expected vs actual. Paste the `trace_id` from any error card if you have one.
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Steps from a clean `just up` + seed profile. Bugs reproducible on seeded data get fixed fastest.
+      placeholder: |
+        1. just seed profile=demo
+        2. …
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [ingestion, compliance-engine, workflow-approvals, agents, knowledge-rag, ml-anomaly, frontend, api, infra, docs, other]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Release tag, image SHA, or branch
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I checked existing issues for duplicates
+          required: true
+        - label: This report contains no real personal or client data
+          required: true

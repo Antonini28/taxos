@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a capability or improvement
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / user story
+      description: Who needs this and why — persona language welcome (P1–P6). "As a Reviewer, I need…"
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations: { required: true }
+  - type: textarea
+    id: governance
+    attributes:
+      label: Governance impact
+      description: Does this touch approvals, audit, tenancy, agent capabilities, or tax computation? If yes, name the constraint (GP-1..6 / AP-1..5) and how it's preserved. Features that give agents new powers require the ADR-012 trio.
+  - type: dropdown
+    id: release
+    attributes:
+      label: Suggested release train
+      options: [R1, R2, R3, R4, backlog]
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I checked the roadmap (docs/discovery/05) and backlog for overlap
+          required: true

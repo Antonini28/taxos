@@ -1,0 +1,81 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint · types · guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --locked
+      - run: just lint            # ruff + mypy strict + import-linter + LLM-dep guard + float-ban + raw-commit ban
+      - run: uv lock --check
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+  test:
+    name: Unit · component · contract
+    runs-on: ubuntu-latest
+    services:
+      postgres: { image: postgres:16-alpine, env: { POSTGRES_PASSWORD: test }, ports: ["5432:5432"] }
+      redis:    { image: redis:7-alpine, ports: ["6379:6379"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --locked
+      - run: just test            # unit (fast)
+      - run: just test-int        # component + integration + contract + INVARIANT suite
+      - name: Coverage gate
+        run: just coverage-check  # 85% core / 95% engine+persistence
+
+  evals:
+    name: AI evals (affected, fixture mode)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --locked
+      - run: just evals-affected  # golden sets for agents touched by this diff; stub/recorded fixtures
+
+  frontend:
+    name: Frontend · axe · bundle budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: apps/frontend/package-lock.json }
+      - run: npm ci --prefix apps/frontend
+      - run: npm run lint --prefix apps/frontend && npm run typecheck --prefix apps/frontend
+      - run: npm run test --prefix apps/frontend          # component + axe
+      - run: npm run build --prefix apps/frontend && npm run budget-check --prefix apps/frontend
+
+  contracts:
+    name: OpenAPI · palette · helm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --locked
+      - run: just openapi-lint    # spectral ruleset
+      - run: just palette-check   # dataviz token validation, light + dark
+      - name: Helm validate (kind)
+        run: just helm-validate   # template + kubeconform + boot on kind to health checks
+
+  build:
+    name: Build images (no push)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - run: just build-images
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with: { scan-type: fs, severity: CRITICAL,HIGH, exit-code: 1 }
