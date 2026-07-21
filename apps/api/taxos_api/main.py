@@ -13,7 +13,14 @@ from taxos_contracts.problem import FieldError
 from taxos_core.shared.config import Settings
 
 from taxos_api.errors import DomainError
-from taxos_api.routers import agent_runs, batches, computations, dashboards, work_items
+from taxos_api.routers import (
+    agent_runs,
+    audit,
+    batches,
+    computations,
+    dashboards,
+    work_items,
+)
 from taxos_contracts import Problem
 from taxos_core import models_registry  # noqa: F401 — completes Base.metadata (see its docstring)
 
@@ -84,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(work_items.router, prefix="/api/v1")
     app.include_router(agent_runs.router, prefix="/api/v1")
     app.include_router(dashboards.router, prefix="/api/v1")
+    app.include_router(audit.router, prefix="/api/v1")
 
     @app.get("/healthz", tags=["platform"])
     async def healthz() -> dict[str, str]:

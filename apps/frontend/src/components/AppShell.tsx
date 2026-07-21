@@ -53,7 +53,7 @@ const NAV_GROUPS = [
     label: "Work",
     items: [
       { href: "/work/approvals", label: "Approvals", icon: Stamp },
-      { href: "/audit", label: "Audit trail", icon: ScrollText, soon: true },
+      { href: "/audit", label: "Audit trail", icon: ScrollText },
     ],
   },
   {
