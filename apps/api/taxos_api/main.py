@@ -1,25 +1,21 @@
 """taxos-api entrypoint — app assembly only (Phase 6 doc 02 §1).
 
-US-101 scope: factory, request-ID + security-headers middleware, problem+json
-error boundary, health endpoints. Domain routers mount here as modules land.
+Domain routers mount here; no business logic lives in this file, ever.
 """
 
 import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from taxos_contracts.problem import FieldError
+from taxos_core import models_registry  # noqa: F401 — completes Base.metadata (see its docstring)
 from taxos_core.shared.config import Settings
 
+from taxos_api.errors import DomainError
+from taxos_api.routers import batches
 from taxos_contracts import Problem
-
-
-class DomainError(Exception):
-    """Base of the typed error taxonomy (Phase 6 doc 02 §4)."""
-
-    status = 500
-    type_suffix = "internal"
-    title = "Internal error"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -59,6 +55,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """FastAPI's own validation errors must speak problem+json too — one error shape
+        across the whole API, or clients need two parsers (Phase 2 doc 06 §3)."""
+        problem = Problem(
+            type="https://taxos.dev/problems/validation",
+            title="Validation failed",
+            status=422,
+            detail="Request failed schema validation",
+            instance=request.url.path,
+            trace_id=getattr(request.state, "request_id", None),
+            errors=[
+                FieldError(field=".".join(str(p) for p in e["loc"]), message=e["msg"])
+                for e in exc.errors()
+            ],
+        )
+        return JSONResponse(
+            problem.model_dump(exclude_none=True),
+            status_code=422,
+            media_type="application/problem+json",
+        )
+
+    app.include_router(batches.router, prefix="/api/v1")
+
     @app.get("/healthz", tags=["platform"])
     async def healthz() -> dict[str, str]:
         """Liveness — process is up."""
@@ -66,7 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/readyz", tags=["platform"])
     async def readyz() -> dict[str, str]:
-        """Readiness — dependencies reachable (DB/Redis checks land with persistence layer)."""
+        """Readiness — dependencies reachable (DB/Redis probes land with the worker tier)."""
         return {"status": "ok", "env": settings.env}
 
     return app

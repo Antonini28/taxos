@@ -3,7 +3,12 @@ name = "taxos"
 version = "0.1.0"
 description = "Enterprise Agentic Tax Operating System — workspace root"
 requires-python = ">=3.12"
-dependencies = ["taxos-contracts", "taxos-core", "taxos-api"]
+dependencies = [
+    "taxos-contracts",
+    "taxos-core",
+    "taxos-api",
+    "python-multipart>=0.0.32",
+]
 
 [tool.uv.workspace]
 members = ["src/taxos_contracts", "src/taxos_core", "apps/api"]

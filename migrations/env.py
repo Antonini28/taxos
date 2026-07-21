@@ -8,12 +8,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
-# Import every model module so Base.metadata is complete
-from taxos_core.audit import models as _audit_models  # noqa: F401
-from taxos_core.masterdata import models as _masterdata_models  # noqa: F401
+from taxos_core.models_registry import Base  # imports every model module
 from taxos_core.shared.config import Settings
-from taxos_core.shared.events import models as _event_models  # noqa: F401
-from taxos_core.shared.persistence.base import Base
 
 config = context.config
 if config.config_file_name is not None:

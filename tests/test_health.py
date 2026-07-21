@@ -2,7 +2,8 @@
 
 import httpx
 import pytest
-from taxos_api.main import DomainError, create_app
+from taxos_api.errors import DomainError
+from taxos_api.main import create_app
 from taxos_core.shared.config import Settings
 
 
