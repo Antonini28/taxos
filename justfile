@@ -42,3 +42,7 @@ demo:
 # ...and through the approval gate as well
 demo-full:
     uv run python tools/seed/demo.py --approve
+
+# Regenerate product screenshots (both themes) — requires the app running
+assets:
+    uv run python tools/assets/capture.py
