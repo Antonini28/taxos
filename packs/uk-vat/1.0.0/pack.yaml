@@ -1,0 +1,83 @@
+# UK VAT rule pack (ADR-005) — content, not code.
+#
+# Every rule carries the HMRC reference that authorises it, so any computed figure can
+# show its source. Adding a jurisdiction means authoring one of these, not changing the
+# engine (AP-3). Packs are immutable once published; changes create a new version.
+pack: uk-vat
+version: 1.0.0
+jurisdiction: UK
+tax_type: VAT
+effective_from: "2026-01-01"
+effective_to: null
+schema_version: 1
+
+rounding:
+  # HMRC permits rounding to whole pounds on the return; boxes are computed to 2dp
+  # then rounded at presentation. Rounding happens ONLY here (ADR-005).
+  mode: ROUND_HALF_UP
+  box_dp: 2
+
+# Transaction classification: which VAT code contributes where.
+# direction: AP = purchases (input tax), AR = sales (output tax)
+codes:
+  S20:
+    label: Standard rate 20%
+    rate: "0.20"
+    citation: { source: hmrc_manual, ref: "VATRATE", note: "Standard rate of VAT" }
+    ar: { output_vat: box_1, net_sales: box_6 }
+    ap: { input_vat: box_4, net_purchases: box_7 }
+  R05:
+    label: Reduced rate 5%
+    rate: "0.05"
+    citation: { source: legislation, ref: "VATA 1994 s.29A", note: "Reduced rate supplies" }
+    ar: { output_vat: box_1, net_sales: box_6 }
+    ap: { input_vat: box_4, net_purchases: box_7 }
+  Z00:
+    label: Zero rated
+    rate: "0.00"
+    citation: { source: legislation, ref: "VATA 1994 Sch.8", note: "Zero-rated supplies" }
+    ar: { output_vat: box_1, net_sales: box_6 }
+    ap: { input_vat: box_4, net_purchases: box_7 }
+  E00:
+    label: Exempt
+    rate: "0.00"
+    citation: { source: legislation, ref: "VATA 1994 Sch.9", note: "Exempt supplies" }
+    # Exempt supplies appear in box 6 but carry no recoverable input tax.
+    ar: { net_sales: box_6 }
+    ap: { net_purchases: box_7 }
+  O00:
+    label: Outside the scope
+    rate: "0.00"
+    citation: { source: hmrc_manual, ref: "VATSC02000", note: "Supplies outside the scope of UK VAT" }
+    # Outside-scope transactions contribute to no box.
+    ar: {}
+    ap: {}
+  RC20:
+    label: Domestic reverse charge 20%
+    rate: "0.20"
+    citation:
+      source: hmrc_manual
+      ref: "VATDSAG"
+      note: >
+        Domestic reverse charge: the customer accounts for output tax and recovers the
+        same amount as input tax, so the entries are self-cancelling in cash terms but
+        both must appear on the return.
+    # The distinguishing rule of this pack: a purchase generates BOTH box 1 and box 4.
+    ap:
+      reverse_charge_output_vat: box_1
+      input_vat: box_4
+      net_purchases: box_7
+    ar:
+      net_sales: box_6
+
+# Box definitions: 9 boxes of the UK VAT return.
+boxes:
+  box_1: { label: "VAT due on sales and other outputs", derived: false }
+  box_2: { label: "VAT due on acquisitions from EU member states", derived: false }
+  box_3: { label: "Total VAT due", derived: true, formula: "box_1 + box_2" }
+  box_4: { label: "VAT reclaimed on purchases and other inputs", derived: false }
+  box_5: { label: "Net VAT to pay or reclaim", derived: true, formula: "abs(box_3 - box_4)" }
+  box_6: { label: "Total value of sales excluding VAT", derived: false, whole_pounds: true }
+  box_7: { label: "Total value of purchases excluding VAT", derived: false, whole_pounds: true }
+  box_8: { label: "Total value of despatches to EU member states", derived: false, whole_pounds: true }
+  box_9: { label: "Total value of acquisitions from EU member states", derived: false, whole_pounds: true }

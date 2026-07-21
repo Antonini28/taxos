@@ -8,7 +8,6 @@ the codebase but not to it.
 """
 
 from sqlalchemy.orm import configure_mappers
-
 from taxos_core.models_registry import Base
 
 

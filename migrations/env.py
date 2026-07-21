@@ -7,7 +7,6 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
-
 from taxos_core.models_registry import Base  # imports every model module
 from taxos_core.shared.config import Settings
 
