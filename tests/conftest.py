@@ -1,6 +1,7 @@
 """Test fixtures. Every DB fixture seeds TWO tenants by default (Phase 10 doc 01 §4)
 so cross-tenant assertions are always one line away."""
 
+import os
 import uuid
 
 import pytest
@@ -37,11 +38,29 @@ DIRTY_CSV = (
 ).encode()
 
 
+def _test_dsn(dsn: str) -> str:
+    """Point at `taxos_test`, never the application database.
+
+    The suite truncates tables between tests. Running it against the app's database
+    destroys whatever is there — which it did, once, and this function is why it cannot
+    happen again. TAXOS_TEST_DATABASE__DSN overrides for CI.
+    """
+    override = os.environ.get("TAXOS_TEST_DATABASE__DSN")
+    if override:
+        return override
+    base, _, name = dsn.rpartition("/")
+    if name.startswith("taxos_test"):
+        return dsn
+    return f"{base}/taxos_test"
+
+
 @pytest_asyncio.fixture
 async def engine():
     """Real Postgres as the APPLICATION role — RLS only proves anything under the role
     the app actually uses (superusers bypass it). Triggers and constraints likewise."""
-    eng = create_async_engine(Settings().database.dsn.get_secret_value(), poolclass=None)
+    eng = create_async_engine(
+        _test_dsn(Settings().database.dsn.get_secret_value()), poolclass=None
+    )
     yield eng
     await eng.dispose()
 
@@ -49,7 +68,9 @@ async def engine():
 @pytest_asyncio.fixture
 async def admin_engine():
     """Owner role — fixture setup/teardown only (TRUNCATE, trigger toggling in tamper tests)."""
-    eng = create_async_engine(Settings().database.migration_dsn.get_secret_value(), poolclass=None)
+    eng = create_async_engine(
+        _test_dsn(Settings().database.migration_dsn.get_secret_value()), poolclass=None
+    )
     yield eng
     await eng.dispose()
 

@@ -11,6 +11,10 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the separate `taxos_test` database on first boot. The suite truncates
+      # tables wholesale, so sharing a database with the running app would silently
+      # destroy demo data every time tests ran — found exactly that way.
+      - ./tools/db/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U taxos -d taxos"]
       interval: 5s
