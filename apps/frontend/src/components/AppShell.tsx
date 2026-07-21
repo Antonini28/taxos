@@ -35,7 +35,7 @@ const NAV_GROUPS = [
     label: "Dashboards",
     items: [
       { href: "/", label: "Operations", icon: LayoutDashboard },
-      { href: "/dashboard", label: "Executive", icon: Building2, soon: true },
+      { href: "/dashboard", label: "Executive", icon: Building2 },
     ],
   },
   {

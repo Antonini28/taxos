@@ -12,7 +12,6 @@ import sys
 import uuid
 
 from sqlalchemy import text
-
 from taxos_core.ingestion.service import IngestionService
 from taxos_core.masterdata.service import EntityService
 from taxos_core.shared.persistence.session import tenant_session
@@ -77,8 +76,11 @@ async def seed(reset: bool = False) -> None:
     async with tenant_session(TENANT_ID) as session:
         if reset:
             for table in TABLES_TO_CLEAR:
+                # Table names come from the constant above, never from input — the
+                # f-string is safe here and the linter is told so explicitly.
                 await session.execute(
-                    text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": TENANT_ID}
+                    text(f"DELETE FROM {table} WHERE tenant_id = :t"),  # noqa: S608
+                    {"t": TENANT_ID},
                 )
             await session.commit()
             print("cleared transactional data")
@@ -87,7 +89,8 @@ async def seed(reset: bool = False) -> None:
         if not any(e.id == ENTITY_ID for e in entities):
             await session.execute(
                 text(
-                    "INSERT INTO legal_entity (id, tenant_id, code, name, jurisdiction_code, created_by) "
+                    "INSERT INTO legal_entity "
+                    "(id, tenant_id, code, name, jurisdiction_code, created_by) "
                     "VALUES (:id, :t, 'UK-01', 'Meridian UK Limited', 'UK', 'system:seed')"
                 ),
                 {"id": ENTITY_ID, "t": TENANT_ID},
