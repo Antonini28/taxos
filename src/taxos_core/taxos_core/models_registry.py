@@ -9,6 +9,7 @@ Every entrypoint (API, workers, migrations) imports this module, so metadata
 completeness is a property of the codebase rather than of import order luck.
 """
 
+from taxos_core.agents import models as agent_models
 from taxos_core.audit import models as audit_models
 from taxos_core.compliance import models as compliance_models
 from taxos_core.ingestion import models as ingestion_models
@@ -19,6 +20,7 @@ from taxos_core.workflow import models as workflow_models
 
 __all__ = [
     "Base",
+    "agent_models",
     "audit_models",
     "compliance_models",
     "event_models",

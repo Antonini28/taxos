@@ -59,7 +59,7 @@ const NAV_GROUPS = [
   {
     label: "AI & Risk",
     items: [
-      { href: "/agents", label: "Agents", icon: Bot, soon: true },
+      { href: "/agents", label: "Agents", icon: Bot },
       { href: "/fraud", label: "Fraud centre", icon: Flag, soon: true },
       { href: "/knowledge", label: "Knowledge", icon: Library, soon: true },
     ],
