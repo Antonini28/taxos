@@ -1,0 +1,43 @@
+[project]
+name = "taxos"
+version = "0.1.0"
+description = "Enterprise Agentic Tax Operating System — workspace root"
+requires-python = ">=3.12"
+dependencies = ["taxos-contracts", "taxos-core", "taxos-api"]
+
+[tool.uv.workspace]
+members = ["src/taxos_contracts", "src/taxos_core", "apps/api"]
+
+[tool.uv.sources]
+taxos-contracts = { workspace = true }
+taxos-core = { workspace = true }
+taxos-api = { workspace = true }
+
+[tool.uv]
+package = false          # virtual root: installs member deps, is not itself a package
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]  # incl. flake8-bandit security rules
+ignore = ["S101"]  # assert allowed (pytest)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+
+[tool.mypy]
+strict = true
+packages = ["taxos_contracts", "taxos_core", "taxos_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

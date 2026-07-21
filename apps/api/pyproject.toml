@@ -1,0 +1,22 @@
+[project]
+name = "taxos-api"
+version = "0.1.0"
+description = "TaxOS core API service — assembly only, no business logic (Phase 6 doc 01)"
+requires-python = ">=3.12"
+dependencies = [
+    "taxos-core",
+    "taxos-contracts",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[tool.uv.sources]
+taxos-core = { workspace = true }
+taxos-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["taxos_api"]
