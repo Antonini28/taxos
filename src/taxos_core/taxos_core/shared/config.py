@@ -11,7 +11,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
-    dsn: SecretStr = SecretStr("postgresql+asyncpg://taxos:taxos@localhost:5432/taxos")
+    """Two DSNs by design (Phase 6 doc 03 §1 / migration 0002).
+
+    `dsn` is the application's non-superuser role — RLS applies to it. `migration_dsn`
+    owns the schema. The app must never be handed the migration credentials: a
+    superuser connection silently bypasses row-level security, turning tenant
+    isolation into decoration.
+    """
+
+    dsn: SecretStr = SecretStr("postgresql+asyncpg://taxos_app:taxos_app@localhost:5432/taxos")
+    migration_dsn: SecretStr = SecretStr("postgresql+asyncpg://taxos:taxos@localhost:5432/taxos")
     pool_size: int = 10
     statement_timeout_ms: int = 30_000
 

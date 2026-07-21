@@ -1,0 +1,53 @@
+"""Alembic environment — async engine, metadata from taxos_core models."""
+
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.pool import NullPool
+
+# Import every model module so Base.metadata is complete
+from taxos_core.audit import models as _audit_models  # noqa: F401
+from taxos_core.masterdata import models as _masterdata_models  # noqa: F401
+from taxos_core.shared.config import Settings
+from taxos_core.shared.events import models as _event_models  # noqa: F401
+from taxos_core.shared.persistence.base import Base
+
+config = context.config
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Migrations run as the owner role — never the application role (doc 03 §1)
+config.set_main_option("sqlalchemy.url", Settings().database.migration_dsn.get_secret_value())
+target_metadata = Base.metadata
+
+
+def do_run_migrations(connection: Connection) -> None:
+    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=NullPool,
+    )
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+    await connectable.dispose()
+
+
+def run_migrations_offline() -> None:
+    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    asyncio.run(run_async_migrations())
