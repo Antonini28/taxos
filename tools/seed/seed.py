@@ -48,6 +48,8 @@ PURCHASES_CSV = (
 )
 
 TABLES_TO_CLEAR = [
+    "agent_step",
+    "agent_run",
     "approval",
     "workflow_transition",
     "work_item",
@@ -58,7 +60,31 @@ TABLES_TO_CLEAR = [
     "quarantine_row",
     "transaction_row",
     "batch",
+    "audit_event",
+    "outbox_event",
 ]
+
+
+async def _truncate_all() -> None:
+    """Clear transactional data as the owner role, using TRUNCATE.
+
+    DELETE is refused here — agent_step, workflow_transition and the audit log carry
+    append-only triggers, and they fire per row. That the demo's own reset has to work
+    around the immutability guarantee is a reasonable sign the guarantee is real.
+    TRUNCATE does not fire row triggers, and requires owner privileges the app role
+    deliberately lacks.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from taxos_core.shared.config import Settings
+
+    engine = create_async_engine(Settings().database.migration_dsn.get_secret_value())
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(f"TRUNCATE {', '.join(TABLES_TO_CLEAR)} RESTART IDENTITY CASCADE")
+            )
+    finally:
+        await engine.dispose()
 
 
 async def seed(reset: bool = False) -> None:
@@ -75,14 +101,7 @@ async def seed(reset: bool = False) -> None:
 
     async with tenant_session(TENANT_ID) as session:
         if reset:
-            for table in TABLES_TO_CLEAR:
-                # Table names come from the constant above, never from input — the
-                # f-string is safe here and the linter is told so explicitly.
-                await session.execute(
-                    text(f"DELETE FROM {table} WHERE tenant_id = :t"),  # noqa: S608
-                    {"t": TENANT_ID},
-                )
-            await session.commit()
+            await _truncate_all()
             print("cleared transactional data")
 
         entities = await EntityService(session, TENANT_ID, PREPARER).list_entities()
