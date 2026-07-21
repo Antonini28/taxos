@@ -40,3 +40,7 @@ dist/
 build/
 *.egg-info/
 artifacts/
+
+# Frontend
+.next/
+next-env.d.ts
