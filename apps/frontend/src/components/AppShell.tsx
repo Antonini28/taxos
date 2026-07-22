@@ -7,6 +7,7 @@ import {
   Database,
   FileCheck2,
   Flag,
+  Landmark,
   LayoutDashboard,
   Library,
   Moon,
@@ -42,6 +43,7 @@ const NAV_GROUPS = [
     label: "Tax",
     items: [
       { href: "/tax/vat", label: "VAT", icon: Calculator },
+      { href: "/tax/corporation-tax", label: "Corporation Tax", icon: Landmark },
       { href: "/tax/calendar", label: "Calendar", icon: FileCheck2, soon: true },
     ],
   },

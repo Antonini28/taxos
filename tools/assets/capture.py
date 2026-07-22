@@ -28,6 +28,7 @@ VIEWPORT = {"width": 1440, "height": 900}
 SHOTS = [
     ("dashboard", "/dashboard", None),
     ("vat-return", "/tax/vat", "box_4"),
+    ("corporation-tax", "/tax/corporation-tax", "ct-addbacks"),
     ("ingestion", "/data/batches", "first-batch"),
     ("agents", "/agents", "first-run"),
     ("fraud", "/fraud", None),
@@ -45,6 +46,10 @@ async def reveal(page, action: str | None) -> None:
     try:
         if action == "box_4":
             await page.get_by_role("button", name="VAT reclaimed on purchases").click()
+        elif action == "ct-addbacks":
+            # The add-backs line drills to depreciation + entertaining, each cited — the
+            # most illustrative row of the Corporation Tax computation.
+            await page.get_by_role("button", name="Add-backs").click()
         elif action == "first-batch":
             await page.locator("tbody tr").first.click()
         elif action in ("first-run", "first-item"):

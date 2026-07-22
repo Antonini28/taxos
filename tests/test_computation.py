@@ -1,15 +1,68 @@
 """US-301 / US-202 against the database: snapshots, idempotence, lineage drill-down."""
 
+import hashlib
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from taxos_core.compliance.service import ComputationService, NoValidatedDataError
+from taxos_core.ingestion.models import Batch, BatchStatus, TransactionRow
 from taxos_core.ingestion.service import IngestionService
 from taxos_core.masterdata.service import EntityService
 from taxos_core.shared.persistence.uow import Actor
 
 ACTOR = Actor.user("daniel@dev")
+
+# A UK Corporation Tax computation: profit before tax, add-backs, then reliefs.
+# TTP = 800000 + (120000 + 15000) - (200000 + 90000) = 645000; CT @ 25% = 161250.
+CT_LINES = [
+    ("PBT", "CT-PBT", "800000.00"),
+    ("DEP", "CT-DEP", "120000.00"),
+    ("ENT", "CT-ENT", "15000.00"),
+    ("CAP", "CT-CAP", "200000.00"),
+    ("RDE", "CT-RDE", "90000.00"),
+]
+
+
+async def _seed_ct_batch(session, tenant_id, entity_id, period_key="2026"):  # noqa: ANN001
+    """Insert a validated Corporation Tax adjustment batch directly. CT adjustments are not
+    VAT-shaped rows, so they do not flow through VAT ingestion — they are their own feed."""
+    batch = Batch(
+        tenant_id=tenant_id,
+        entity_id=entity_id,
+        period_key=period_key,
+        source_type="CT",
+        filename="ct.csv",
+        content_hash=hashlib.sha256(f"ct-{entity_id}-{period_key}".encode()).hexdigest(),
+        status=BatchStatus.VALIDATED,
+        row_count=len(CT_LINES),
+        accepted_count=len(CT_LINES),
+        quarantined_count=0,
+        created_by=ACTOR.ref,
+    )
+    session.add(batch)
+    await session.flush()
+    for index, (code, ref, amount) in enumerate(CT_LINES, start=1):
+        session.add(
+            TransactionRow(
+                tenant_id=tenant_id,
+                batch_id=batch.id,
+                row_number=index,
+                row_hash=hashlib.sha256(f"{ref}{amount}".encode()).hexdigest(),
+                document_ref=ref,
+                document_date=date(2026, 3, 31),
+                counterparty="CT adjustment",
+                net_amount=Decimal(amount),
+                vat_amount=Decimal("0.00"),
+                vat_code=code,
+                currency="GBP",
+                source_payload={},
+            )
+        )
+    await session.commit()
+    return batch
+
 
 SALES_CSV = (
     b"document_ref,document_date,counterparty,net_amount,vat_amount,vat_code,currency\n"
@@ -181,3 +234,63 @@ async def test_quarantined_rows_are_excluded_from_the_computation(session_a, ten
     # Only the single clean row (net 1000, VAT 200 at S20) survived validation
     assert Decimal(computation.result["box_4"]) == Decimal("200.00")
     assert Decimal(computation.result["box_7"]) == Decimal("1000")
+
+
+# --- AP-3: a second tax type on the same engine, persistence and audit --------
+
+
+async def test_corporation_tax_computes_through_the_same_pipeline(session_a, tenant_a):
+    """The proof the platform is tax-type-agnostic: CT is authored as a pack, and the same
+    ComputationService that files VAT produces a Corporation Tax charge — snapshot, lineage,
+    audit and all — with no VAT-specific path involved."""
+    entity = await EntityService(session_a, tenant_a, ACTOR).create_entity(
+        code="UK-CT", name="Meridian UK Ltd", jurisdiction_code="UK"
+    )
+    await _seed_ct_batch(session_a, tenant_a, entity.id)
+
+    computation = await ComputationService(session_a, tenant_a, ACTOR).compute_corporation_tax(
+        entity_id=entity.id, period_key="2026"
+    )
+
+    assert computation.tax_type == "CT"
+    assert computation.pack_ref == "uk-corporation-tax@1.0.0"
+    assert Decimal(computation.result["box_ttp"]) == Decimal("645000.00")
+    assert Decimal(computation.result["box_ct"]) == Decimal("161250.00")
+
+
+async def test_ct_lineage_drills_from_the_charge_to_the_adjustments(session_a, tenant_a):
+    """Corporation Tax gets the same evidence trail as VAT for free — the add-backs box
+    reconciles to the depreciation and entertaining lines, each carrying its citation."""
+    entity = await EntityService(session_a, tenant_a, ACTOR).create_entity(
+        code="UK-CT2", name="Meridian UK Ltd", jurisdiction_code="UK"
+    )
+    await _seed_ct_batch(session_a, tenant_a, entity.id)
+    svc = ComputationService(session_a, tenant_a, ACTOR)
+    computation = await svc.compute_corporation_tax(entity_id=entity.id, period_key="2026")
+
+    addbacks = await svc.get_lineage(computation.id, "box_addbacks")
+    assert {e.document_ref for e in addbacks} == {"CT-DEP", "CT-ENT"}
+    total = sum((e.amount for e in addbacks), Decimal("0"))
+    assert total == Decimal(computation.result["box_addbacks"])
+    assert all(e.citation_ref for e in addbacks)
+    assert any("CTA 2009 s.1298" in e.citation_ref for e in addbacks)
+
+
+async def test_vat_and_ct_do_not_mix_even_in_the_same_period(session_a, tenant_a, prepared_entity):
+    """The source-type filter, proven: an entity with both a VAT quarter and a CT batch in
+    the SAME period key computes each return from only its own feed. A VAT figure never
+    absorbs a Corporation Tax adjustment, and vice versa."""
+    # prepared_entity already has AR/AP batches for 2026-Q2. Add a CT batch for 2026-Q2 too,
+    # so only the source type — not the period — separates them.
+    await _seed_ct_batch(session_a, tenant_a, prepared_entity, period_key="2026-Q2")
+    svc = ComputationService(session_a, tenant_a, ACTOR)
+
+    vat = await svc.compute_vat(entity_id=prepared_entity, period_key="2026-Q2")
+    assert vat.tax_type == "VAT"
+    assert Decimal(vat.result["box_1"]) == Decimal("3800.00")  # unchanged by the CT rows
+    assert "box_ct" not in vat.result
+
+    ct = await svc.compute_corporation_tax(entity_id=prepared_entity, period_key="2026-Q2")
+    assert ct.tax_type == "CT"
+    assert Decimal(ct.result["box_ct"]) == Decimal("161250.00")
+    assert "box_1" not in ct.result

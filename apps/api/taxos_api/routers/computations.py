@@ -10,6 +10,7 @@ from taxos_contracts.compliance import (
     BoxOut,
     ComputationOut,
     ComputeRequest,
+    CorporationTaxRequest,
     LineageEntryOut,
     LineageOut,
 )
@@ -58,6 +59,30 @@ async def run_computation(
     service = _service(session, principal)
     try:
         computation = await service.compute_vat(
+            entity_id=body.entity_id,
+            period_key=body.period_key,
+            pack_version=body.pack_version,
+        )
+    except NoValidatedDataError as exc:
+        raise ValidationFailed(str(exc)) from exc
+    except PackError as exc:
+        raise ValidationFailed(f"Rule pack error: {exc}") from exc
+    return await _to_out(service, computation)
+
+
+@router.post(
+    "/computations/corporation-tax",
+    response_model=ComputationOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_corporation_tax(
+    body: CorporationTaxRequest, principal: PrincipalDep, session: SessionDep
+) -> ComputationOut:
+    """Compute the Corporation Tax charge — the same engine and evidence trail as VAT,
+    driven by the uk-corporation-tax pack instead of uk-vat (AP-3)."""
+    service = _service(session, principal)
+    try:
+        computation = await service.compute_corporation_tax(
             entity_id=body.entity_id,
             period_key=body.period_key,
             pack_version=body.pack_version,

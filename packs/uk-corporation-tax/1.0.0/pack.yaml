@@ -1,0 +1,83 @@
+# UK Corporation Tax rule pack (AP-3) — content, not code.
+#
+# This pack exists to prove the platform's central claim: a new tax type is authored, not
+# engineered. It is computed by the SAME deterministic engine as UK VAT, with no change to
+# the engine — only these boxes, codes, citations and derived-box formulas differ.
+#
+# The computation follows the standard adjustment of accounting profit to Taxable Total
+# Profits: start from profit before tax, add back amounts disallowed for tax, subtract
+# reliefs and allowances, then charge Corporation Tax at the main rate.
+pack: uk-corporation-tax
+version: 1.0.0
+jurisdiction: UK
+tax_type: CT
+effective_from: "2026-04-01"
+effective_to: null
+schema_version: 1
+
+rounding:
+  mode: ROUND_HALF_UP
+  box_dp: 2
+
+# Adjustment codes. Corporation Tax has a single input stream (the tax computation), so
+# every code uses the pack's primary mapping slot (`ap`). Add-backs and reliefs each
+# accumulate as POSITIVE totals; the Taxable Total Profits formula does the subtraction,
+# so the engine needs no signed contributions.
+codes:
+  PBT:
+    label: Profit before tax (per accounts)
+    rate: "0.00"
+    citation:
+      source: legislation
+      ref: "CTA 2009 s.46"
+      note: "Profits calculated in accordance with GAAP, subject to tax adjustment."
+    ap: { accounting_profit: box_pbt }
+  DEP:
+    label: Depreciation and amortisation
+    rate: "0.00"
+    citation:
+      source: legislation
+      ref: "CTA 2009 s.53"
+      note: "Capital items: depreciation is not deductible; capital allowances are given instead."
+    ap: { add_back: box_addbacks }
+  ENT:
+    label: Client entertaining
+    rate: "0.00"
+    citation:
+      source: legislation
+      ref: "CTA 2009 s.1298"
+      note: "Business entertainment expenditure is disallowed in computing trade profits."
+    ap: { add_back: box_addbacks }
+  CAP:
+    label: Capital allowances (plant & machinery)
+    rate: "0.00"
+    citation:
+      source: legislation
+      ref: "CAA 2001 s.11"
+      note: "Plant and machinery allowances, including the Annual Investment Allowance."
+    ap: { relief: box_deductions }
+  RDE:
+    label: R&D enhanced deduction
+    rate: "0.00"
+    citation:
+      source: legislation
+      ref: "CTA 2009 Pt.13"
+      note: "Additional deduction for qualifying research and development expenditure."
+    ap: { relief: box_deductions }
+
+# Boxes of the computation. box_ttp and box_ct are derived — their arithmetic lives here,
+# in the pack, and is evaluated by the engine's formula evaluator (AP-3), not hardcoded.
+boxes:
+  box_pbt: { label: "Profit before tax", derived: false }
+  box_addbacks: { label: "Add-backs (disallowed items)", derived: false }
+  box_deductions: { label: "Reliefs and allowances", derived: false }
+  box_ttp:
+    label: "Taxable total profits"
+    derived: true
+    formula: "box_pbt + box_addbacks - box_deductions"
+  box_ct:
+    label: "Corporation Tax at 25%"
+    derived: true
+    # Main rate for FY2026. Marginal relief (the small-profits rate and the £50k–£250k
+    # band) is a documented simplification — not modelled in this illustrative pack.
+    formula: "box_ttp * 0.25"

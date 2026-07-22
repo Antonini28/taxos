@@ -8,10 +8,13 @@ Usage:  uv run python tools/seed/seed.py [--reset]
 """
 
 import asyncio
+import hashlib
 import sys
 import uuid
+from datetime import date
+from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from taxos_core.ingestion.service import IngestionService
 from taxos_core.masterdata.service import EntityService
 from taxos_core.shared.persistence.session import tenant_session
@@ -48,6 +51,19 @@ PURCHASES_CSV = (
     b"PI-2608,2026-06-18,Delta Construction Ltd,22000.00,0.00,RC20,GBP\n"
     b"PI-2609,2026-01-14,Apex Supplies Ltd,4300.00,860.00,S20,GBP\n"
 )
+
+# UK Corporation Tax computation for Meridian UK, FY2026 (period "2026"). The adjustment of
+# accounting profit to taxable total profits: profit before tax, add-backs of disallowed
+# items, then reliefs. Computed by the SAME engine as VAT, under the uk-corporation-tax pack.
+#   (code, document_ref, description, amount)
+CT_PERIOD = "2026"
+CT_ADJUSTMENTS = [
+    ("PBT", "CT-PBT-2026", "Profit before tax per statutory accounts", "800000.00"),
+    ("DEP", "CT-DEP-2026", "Depreciation and amortisation (add-back)", "120000.00"),
+    ("ENT", "CT-ENT-2026", "Client entertaining (disallowed)", "15000.00"),
+    ("CAP", "CT-CAP-2026", "Capital allowances — plant & machinery", "200000.00"),
+    ("RDE", "CT-RDE-2026", "R&D enhanced deduction", "90000.00"),
+]
 
 TABLES_TO_CLEAR = [
     "anomaly",
@@ -89,6 +105,66 @@ async def _truncate_all() -> None:
             )
     finally:
         await engine.dispose()
+
+
+async def _seed_corporation_tax(session) -> None:  # noqa: ANN001
+    """Seed the CT adjustment batch and compute the charge — proving the pipeline is
+    tax-type-agnostic: a different pack and feed, the same engine, persistence and audit."""
+    from taxos_core.compliance.service import ComputationService
+    from taxos_core.ingestion.models import Batch, BatchStatus, TransactionRow
+
+    existing = (
+        await session.execute(
+            select(Batch.id).where(
+                Batch.entity_id == ENTITY_ID,
+                Batch.period_key == CT_PERIOD,
+                Batch.source_type == "CT",
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing is None:
+        content = "|".join(f"{code}:{amt}" for code, _, _, amt in CT_ADJUSTMENTS).encode()
+        batch = Batch(
+            tenant_id=TENANT_ID,
+            entity_id=ENTITY_ID,
+            period_key=CT_PERIOD,
+            source_type="CT",
+            filename="ct_computation_2026.csv",
+            content_hash=hashlib.sha256(content).hexdigest(),
+            status=BatchStatus.VALIDATED,
+            row_count=len(CT_ADJUSTMENTS),
+            accepted_count=len(CT_ADJUSTMENTS),
+            quarantined_count=0,
+            control_total=Decimal("0"),
+            created_by=PREPARER.ref,
+        )
+        session.add(batch)
+        await session.flush()
+        for index, (code, ref, description, amount) in enumerate(CT_ADJUSTMENTS, start=1):
+            session.add(
+                TransactionRow(
+                    tenant_id=TENANT_ID,
+                    batch_id=batch.id,
+                    row_number=index,
+                    row_hash=hashlib.sha256(f"{ref}|{amount}|{code}".encode()).hexdigest(),
+                    document_ref=ref,
+                    document_date=date(2026, 3, 31),
+                    counterparty=description,
+                    net_amount=Decimal(amount),
+                    vat_amount=Decimal("0.00"),
+                    vat_code=code,
+                    currency="GBP",
+                    source_payload={"code": code, "amount": amount, "description": description},
+                )
+            )
+        await session.commit()
+        print(f"created CT adjustment batch: {len(CT_ADJUSTMENTS)} lines")
+
+    computation = await ComputationService(session, TENANT_ID, PREPARER).compute_corporation_tax(
+        entity_id=ENTITY_ID, period_key=CT_PERIOD
+    )
+    print(f"computed corporation tax: charge £{computation.result.get('box_ct')}")
 
 
 async def seed(reset: bool = False) -> None:
@@ -141,6 +217,10 @@ async def seed(reset: bool = False) -> None:
                 )
             except Exception as exc:  # noqa: BLE001 — seeding is idempotent by intent
                 print(f"skipped {filename}: {exc}")
+
+    # UK Corporation Tax — the same governed pipeline, a different pack (AP-3).
+    async with tenant_session(TENANT_ID) as session:
+        await _seed_corporation_tax(session)
 
     # Global knowledge corpus — shared reference data, seeded once.
     async with tenant_session(TENANT_ID) as session:

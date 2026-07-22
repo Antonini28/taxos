@@ -16,6 +16,15 @@ class ComputeRequest(BaseModel):
     pack_version: str = "1.0.0"
 
 
+class CorporationTaxRequest(BaseModel):
+    """Corporation Tax is charged on an annual accounting period, not a VAT quarter, so the
+    period key is a full year (e.g. "2026") — a different shape, validated in its own right."""
+
+    entity_id: uuid.UUID
+    period_key: str = Field(pattern=r"^\d{4}$", examples=["2026"])
+    pack_version: str = "1.0.0"
+
+
 class BoxOut(BaseModel):
     box_id: str
     label: str

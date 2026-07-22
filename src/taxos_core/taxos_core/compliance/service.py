@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from taxos_core.compliance.engine import (
     EngineTransaction,
-    compute_vat_return,
+    compute_return,
     inputs_hash,
 )
 from taxos_core.compliance.models import Computation, ComputationLine, ComputationLineSource
@@ -22,8 +22,14 @@ from taxos_core.ingestion.models import Batch, BatchStatus, TransactionRow
 from taxos_core.shared.persistence.uow import Actor, AuditedUnitOfWork
 
 # Which source types are sales vs purchases. Direction is data about the feed, not a
-# guess about the transaction.
-_DIRECTION_BY_SOURCE = {"AP": "AP", "AR": "AR", "GL": "AP"}
+# guess about the transaction. Corporation Tax has a single input stream ("CT"), which
+# falls through to the pack's primary mapping slot.
+_DIRECTION_BY_SOURCE = {"AP": "AP", "AR": "AR", "GL": "AP", "CT": "AP"}
+
+# The feeds that belong to each tax type, so a return never sweeps in another tax's rows:
+# a VAT computation must not read the Corporation Tax adjustment batch, or vice versa.
+_VAT_SOURCES = frozenset({"AP", "AR", "GL"})
+_CT_SOURCES = frozenset({"CT"})
 
 
 class NoValidatedDataError(Exception):
@@ -57,14 +63,45 @@ class ComputationService:
         pack_version: str = "1.0.0",
         pack: RulePack | None = None,
     ) -> Computation:
+        """Compute a UK VAT return from the validated sales/purchase batches."""
         pack = pack or load_pack(pack_name, pack_version)
+        return await self._compute(
+            entity_id=entity_id, period_key=period_key, pack=pack, source_types=_VAT_SOURCES
+        )
 
+    async def compute_corporation_tax(
+        self,
+        *,
+        entity_id: uuid.UUID,
+        period_key: str,
+        pack_name: str = "uk-corporation-tax",
+        pack_version: str = "1.0.0",
+        pack: RulePack | None = None,
+    ) -> Computation:
+        """Compute a UK Corporation Tax charge from the adjustment batch.
+
+        Same engine, same persistence, same audit and lineage as VAT — the only difference
+        is the pack and which feed it reads. That is the whole point (AP-3)."""
+        pack = pack or load_pack(pack_name, pack_version)
+        return await self._compute(
+            entity_id=entity_id, period_key=period_key, pack=pack, source_types=_CT_SOURCES
+        )
+
+    async def _compute(
+        self,
+        *,
+        entity_id: uuid.UUID,
+        period_key: str,
+        pack: RulePack,
+        source_types: frozenset[str],
+    ) -> Computation:
         batches = (
             (
                 await self._s.execute(
                     select(Batch).where(
                         Batch.entity_id == entity_id,
                         Batch.period_key == period_key,
+                        Batch.source_type.in_(source_types),
                         Batch.status.in_(
                             [BatchStatus.VALIDATED, BatchStatus.VALIDATED_WITH_EXCEPTIONS]
                         ),
@@ -76,7 +113,7 @@ class ComputationService:
         )
         if not batches:
             raise NoValidatedDataError(
-                f"No validated batches for entity {entity_id} period {period_key}"
+                f"No validated {pack.tax_type} data for entity {entity_id} period {period_key}"
             )
 
         direction_by_batch = {b.id: _DIRECTION_BY_SOURCE.get(b.source_type, "AP") for b in batches}
@@ -103,7 +140,7 @@ class ComputationService:
             for r in rows
         ]
 
-        result = compute_vat_return(engine_txns, pack)
+        result = compute_return(engine_txns, pack)
         in_hash = inputs_hash(engine_txns, pack)
 
         # Idempotence: the same inputs under the same pack return the existing snapshot
@@ -123,7 +160,7 @@ class ComputationService:
             tenant_id=self._tenant_id,
             entity_id=entity_id,
             period_key=period_key,
-            tax_type="VAT",
+            tax_type=pack.tax_type,
             pack_ref=pack.ref,
             pack_content_hash=pack.content_hash,
             engine_version=result.engine_version,

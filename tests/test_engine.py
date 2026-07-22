@@ -10,6 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from taxos_core.compliance.engine import (
     EngineTransaction,
+    compute_return,
     compute_vat_return,
     inputs_hash,
 )
@@ -83,6 +84,30 @@ def test_unknown_codes_are_reported_never_guessed():
     result = compute_vat_return([txn("r1", "AR", "ZZ9", "100.00", "20.00")], PACK)
     assert result.unmapped_codes == ["ZZ9"]
     assert result.box("box_1") == Decimal("0.00")
+
+
+# --- AP-3: the same engine computes a different tax type from a different pack -
+
+
+def test_engine_computes_corporation_tax_from_its_pack_unchanged():
+    """No engine change: hand `compute_return` the Corporation Tax pack and a set of
+    adjustment lines, and it produces the CT charge. Add-backs and reliefs accumulate
+    positively; the pack's derived-box formulas do the subtraction and apply the rate."""
+    ct_pack = load_pack("uk-corporation-tax", "1.0.0")
+    lines = [
+        txn("a1", "AP", "PBT", "800000.00"),
+        txn("a2", "AP", "DEP", "120000.00"),
+        txn("a3", "AP", "ENT", "15000.00"),
+        txn("a4", "AP", "CAP", "200000.00"),
+        txn("a5", "AP", "RDE", "90000.00"),
+    ]
+    result = compute_return(lines, ct_pack)
+    assert result.box("box_pbt") == Decimal("800000.00")
+    assert result.box("box_addbacks") == Decimal("135000.00")
+    assert result.box("box_deductions") == Decimal("290000.00")
+    assert result.box("box_ttp") == Decimal("645000.00")  # derived: pbt + addbacks - reliefs
+    assert result.box("box_ct") == Decimal("161250.00")  # derived: ttp * 25%
+    assert result.unmapped_codes == []
 
 
 # --- FR-205 reproducibility ---------------------------------------------------

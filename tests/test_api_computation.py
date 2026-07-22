@@ -95,7 +95,7 @@ async def test_computation_without_data_returns_422(api, session_a, tenant_a):
         "/api/v1/computations", json={"entity_id": str(entity.id), "period_key": "2026-Q2"}
     )
     assert response.status_code == 422
-    assert "No validated batches" in response.json()["detail"]
+    assert "No validated VAT data" in response.json()["detail"]
 
 
 async def test_malformed_period_key_is_rejected_by_the_contract(api, entity_with_data):

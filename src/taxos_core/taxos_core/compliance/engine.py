@@ -1,4 +1,11 @@
-"""The deterministic VAT engine (AP-2, US-301).
+"""The deterministic tax engine (AP-2, US-301).
+
+Originally the VAT engine; now tax-type-neutral. What makes a return a *return* — its boxes,
+their derivations, the codes that feed them, and the citations — is content in a rule pack
+(see `pack.py`, `formula.py`), so a second tax type (UK Corporation Tax) computes here with
+no change to this file. The engine supplies the reusable primitives: classify each row by
+its pack code, accumulate signed contributions per box, then evaluate the pack's derived-box
+formulas.
 
 Properties this module guarantees, each covered by a test:
 
@@ -26,15 +33,17 @@ ENGINE_VERSION = "1.0.0"
 
 Direction = Literal["AP", "AR"]
 
-# Contribution kinds and the sign they carry into their box. Reverse charge is the
-# interesting case: one purchase produces an output-tax entry AND an input-tax entry.
-_KIND_SIGN: dict[str, Decimal] = {
-    "output_vat": Decimal("1"),
-    "reverse_charge_output_vat": Decimal("1"),
-    "input_vat": Decimal("1"),
-    "net_sales": Decimal("1"),
-    "net_purchases": Decimal("1"),
-}
+# Contribution kinds that carry a NEGATIVE sign into their box. Everything else is +1 (see
+# _sign_of). VAT has no negatives — every kind accumulates positively and the derived-box
+# formula does any subtraction (Box 5 = |Box 3 − Box 4|). Corporation Tax is the same shape:
+# add-backs and deductions both accumulate as positive totals, and the derived Taxable Total
+# Profits formula subtracts the deductions. So this set is empty today, and the mechanism
+# exists for a future pack that genuinely needs a signed contribution.
+_NEGATIVE_KINDS: frozenset[str] = frozenset()
+
+
+def _sign_of(kind: str) -> Decimal:
+    return Decimal("-1") if kind in _NEGATIVE_KINDS else Decimal("1")
 
 
 @dataclass(frozen=True)
@@ -115,12 +124,15 @@ def _quantize(value: Decimal, dp: int) -> Decimal:
     return value.quantize(Decimal(1).scaleb(-dp), rounding=ROUND_HALF_UP)
 
 
-def compute_vat_return(transactions: list[EngineTransaction], pack: RulePack) -> ComputationResult:
-    """Compute a 9-box UK VAT return. Pure: same inputs ⇒ same output, always.
+def compute_return(transactions: list[EngineTransaction], pack: RulePack) -> ComputationResult:
+    """Compute a return from a rule pack. Pure: same inputs ⇒ same output, always.
 
-    Unknown VAT codes are REPORTED, never guessed and never silently ignored: a code
-    the pack does not define means the pack or the data is wrong, and a human must
-    decide which.
+    The pack decides everything tax-type-specific — boxes, codes, mappings, derivations —
+    so this one function computes a UK VAT return or a UK Corporation Tax computation
+    depending only on which pack it is handed.
+
+    Unknown codes are REPORTED, never guessed and never silently ignored: a code the pack
+    does not define means the pack or the data is wrong, and a human must decide which.
     """
     totals: dict[str, Decimal] = {box_id: Decimal("0") for box_id in pack.boxes}
     contributions: list[Contribution] = []
@@ -147,7 +159,7 @@ def compute_vat_return(transactions: list[EngineTransaction], pack: RulePack) ->
                 # output tax, not the (zero) VAT on the invoice.
                 amount = _quantize(txn.net_amount * rule.rate, pack.box_dp)
 
-            signed = amount * _KIND_SIGN[kind]
+            signed = amount * _sign_of(kind)
             totals[box_id] += signed
             contributions.append(
                 Contribution(
@@ -191,3 +203,8 @@ def compute_vat_return(transactions: list[EngineTransaction], pack: RulePack) ->
         contributions=contributions,
         unmapped_codes=sorted(unmapped),
     )
+
+
+# The engine began life VAT-only; this alias keeps the VAT-specific call sites and tests
+# reading naturally now that the function computes any pack.
+compute_vat_return = compute_return
