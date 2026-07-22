@@ -35,10 +35,11 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
-    env:
-      # The suite runs against a separate database (tests truncate wholesale; the app
-      # DB must never be in reach). CI provisions it explicitly below.
-      TAXOS_TEST_DATABASE__DSN: postgresql+asyncpg://taxos_app:taxos_app@localhost:5432/taxos_test
+    # No TAXOS_TEST_DATABASE__DSN here on purpose. That override replaces *both* the app
+    # and owner DSNs with one value, which would connect the owner engine as the app role
+    # and fail TRUNCATE. Instead the default localhost DSNs are used, and the test helper
+    # rewrites only the database name to `taxos_test` while preserving each role — the
+    # same path that runs locally.
     steps:
       - uses: actions/checkout@v4
 

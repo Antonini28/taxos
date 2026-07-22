@@ -42,16 +42,27 @@ def _test_dsn(dsn: str) -> str:
     """Point at `taxos_test`, never the application database.
 
     The suite truncates tables between tests. Running it against the app's database
-    destroys whatever is there — which it did, once, and this function is why it cannot
-    happen again. TAXOS_TEST_DATABASE__DSN overrides for CI.
+    destroys whatever is there — which it did, once, and this rewrite is why it cannot
+    happen again.
+
+    The rewrite preserves the *role* and only swaps the database name. That matters: the
+    app engine connects as the non-superuser app role (so RLS is genuinely exercised) and
+    the admin engine as the owner (so it can TRUNCATE). An earlier version accepted a
+    single env override for the whole DSN, which silently connected the owner engine as
+    the app role and broke TRUNCATE in CI — so the override is now host-only.
     """
-    override = os.environ.get("TAXOS_TEST_DATABASE__DSN")
-    if override:
-        return override
+    host_override = os.environ.get("TAXOS_TEST_DB_HOST")
     base, _, name = dsn.rpartition("/")
-    if name.startswith("taxos_test"):
-        return dsn
-    return f"{base}/taxos_test"
+    if not name.startswith("taxos_test"):
+        base = f"{base}/taxos_test"
+    else:
+        base = dsn
+    if host_override:
+        # Replace only the host:port segment, keeping user, password, and database.
+        prefix, _, rest = base.partition("@")
+        _, _, tail = rest.partition("/")
+        return f"{prefix}@{host_override}/{tail}"
+    return base
 
 
 @pytest_asyncio.fixture
