@@ -31,6 +31,7 @@ SHOTS = [
     ("ingestion", "/data/batches", "first-batch"),
     ("agents", "/agents", "first-run"),
     ("fraud", "/fraud", None),
+    ("knowledge", "/knowledge", "example-answer"),
     ("approvals", "/work/approvals", "first-item"),
     ("audit", "/audit", None),
     ("operations", "/", None),
@@ -48,6 +49,9 @@ async def reveal(page, action: str | None) -> None:
             await page.locator("tbody tr").first.click()
         elif action in ("first-run", "first-item"):
             await page.locator("ul li button").first.click()
+        elif action == "example-answer":
+            # Ask the first example question so the shot shows cited passages, not an empty form.
+            await page.get_by_role("button", name="How does the domestic reverse charge").click()
         await page.wait_for_timeout(1200)
     except Exception as exc:  # noqa: BLE001 — a missing panel should not fail the run
         print(f"    (could not open {action}: {exc})")
