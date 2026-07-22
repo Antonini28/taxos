@@ -142,6 +142,14 @@ async def seed(reset: bool = False) -> None:
             except Exception as exc:  # noqa: BLE001 — seeding is idempotent by intent
                 print(f"skipped {filename}: {exc}")
 
+    # Global knowledge corpus — shared reference data, seeded once.
+    async with tenant_session(TENANT_ID) as session:
+        from taxos_core.knowledge.service import seed_corpus
+
+        chunks = await seed_corpus(session)
+        if chunks:
+            print(f"seeded knowledge corpus: {chunks} passages")
+
     print(f"\ntenant {TENANT_ID}\nentity {ENTITY_ID}")
 
 

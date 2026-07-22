@@ -61,7 +61,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/agents", label: "Agents", icon: Bot },
       { href: "/fraud", label: "Fraud centre", icon: Flag },
-      { href: "/knowledge", label: "Knowledge", icon: Library, soon: true },
+      { href: "/knowledge", label: "Knowledge", icon: Library },
     ],
   },
 ];

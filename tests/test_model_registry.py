@@ -29,6 +29,8 @@ def test_expected_tables_are_registered():
         "transaction_row",
         "quarantine_row",
         "validation_result",
+        "knowledge_doc",
+        "knowledge_chunk",
     } <= tables
 
 
@@ -50,7 +52,13 @@ def test_every_tenant_scoped_model_declares_tenant_id():
     Global reference tables are exempt by design and listed explicitly, so adding a
     new one is a deliberate decision rather than an oversight.
     """
-    global_tables = {"tenant", "jurisdiction", "alembic_version"}
+    global_tables = {
+        "tenant",
+        "jurisdiction",
+        "alembic_version",
+        "knowledge_doc",
+        "knowledge_chunk",
+    }
     for name, table in Base.metadata.tables.items():
         if name in global_tables:
             continue

@@ -13,6 +13,7 @@ from taxos_core.agents import models as agent_models
 from taxos_core.audit import models as audit_models
 from taxos_core.compliance import models as compliance_models
 from taxos_core.ingestion import models as ingestion_models
+from taxos_core.knowledge import models as knowledge_models
 from taxos_core.masterdata import models as masterdata_models
 from taxos_core.risk import models as risk_models
 from taxos_core.shared.events import models as event_models
@@ -26,6 +27,7 @@ __all__ = [
     "compliance_models",
     "event_models",
     "ingestion_models",
+    "knowledge_models",
     "masterdata_models",
     "risk_models",
     "workflow_models",
