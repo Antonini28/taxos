@@ -9,8 +9,9 @@ negative, while DISMISSED_NO_TIME is a censored label, not a benign one (docs/ml
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -95,3 +96,34 @@ class AnomalyScan(Base, TenantMixin, TimestampMixin):
     completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class RiskScore(Base, TenantMixin, TimestampMixin):
+    """A Rung-2 model score for one transaction, with its exact Shapley explanation stored
+    at scoring time (docs/ml/04). Advisory, never a disposition: a reviewer weighs the score
+    and its reason, then acts on the transaction elsewhere (ML-1). Scores are a deterministic
+    function of the population and the model version, so re-scoring replaces them rather than
+    accumulating history — the model_version pins which model produced a stored score."""
+
+    __tablename__ = "risk_score"
+    __table_args__ = (Index("ix_risk_score_entity_period", "tenant_id", "entity_id", "period_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True, default=new_id)
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("legal_entity.id"), nullable=False
+    )
+    period_key: Mapped[str] = mapped_column(String(20), nullable=False)
+    row_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("transaction_row.id"), nullable=False
+    )
+    document_ref: Mapped[str] = mapped_column(String(100), nullable=False)
+    counterparty: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    model_version: Mapped[str] = mapped_column(String(30), nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    percentile: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    flagged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # [{feature, value, contribution}] — the exact Shapley attribution, top-first.
+    attributions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

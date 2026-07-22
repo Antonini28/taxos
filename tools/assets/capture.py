@@ -32,6 +32,7 @@ SHOTS = [
     ("ingestion", "/data/batches", "first-batch"),
     ("agents", "/agents", "first-run"),
     ("fraud", "/fraud", None),
+    ("risk-score", "/fraud", "scroll-ml"),
     ("knowledge", "/knowledge", "example-answer"),
     ("approvals", "/work/approvals", "first-item"),
     ("audit", "/audit", None),
@@ -57,6 +58,10 @@ async def reveal(page, action: str | None) -> None:
         elif action == "example-answer":
             # Ask the first example question so the shot shows cited passages, not an empty form.
             await page.get_by_role("button", name="How does the domestic reverse charge").click()
+        elif action == "scroll-ml":
+            # The Rung-2 model section sits below the rule queue — scroll it into frame so the
+            # shot shows the Shapley explanation, the point of the whole screen.
+            await page.get_by_role("heading", name="Model risk score").scroll_into_view_if_needed()
         await page.wait_for_timeout(1200)
     except Exception as exc:  # noqa: BLE001 — a missing panel should not fail the run
         print(f"    (could not open {action}: {exc})")

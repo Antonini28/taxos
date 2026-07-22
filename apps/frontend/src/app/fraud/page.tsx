@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, CircleX, Flag, RadarIcon, ShieldAlert } from "lucide-react";
+import { CircleCheck, CircleX, Flag, RadarIcon, ShieldAlert, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -53,6 +53,30 @@ interface Reasons {
   dismiss: Record<string, string>;
 }
 
+interface Attribution {
+  feature: string;
+  value: number;
+  contribution: number;
+}
+
+interface RiskScore {
+  document_ref: string;
+  counterparty: string;
+  score: number;
+  rank: number;
+  percentile: number;
+  reason: string;
+  model_version: string;
+  attributions: Attribution[];
+}
+
+const FEATURE_LABEL: Record<string, string> = {
+  log_net: "amount (size)",
+  vat_ratio: "VAT-to-net ratio",
+  is_round: "round amount",
+  counterparty_zscore: "vs. counterparty's usual",
+};
+
 const SEVERITY_TONE: Record<string, "critical" | "serious" | "neutral"> = {
   HIGH: "critical",
   MEDIUM: "serious",
@@ -73,6 +97,13 @@ export default function FraudPage() {
   const reasons = useQuery({
     queryKey: ["disposition-reasons"],
     queryFn: () => api.get<Reasons>("/api/v1/anomalies/reasons"),
+  });
+  const riskScores = useQuery({
+    queryKey: ["risk-scores"],
+    queryFn: () =>
+      api.get<RiskScore[]>(
+        `/api/v1/anomalies/risk-scores?entity_id=${ENTITY_ID}&period_key=2026-Q2`,
+      ),
   });
 
   const runScan = useMutation({
@@ -142,7 +173,71 @@ export default function FraudPage() {
           </ul>
         )}
       </Card>
+
+      {riskScores.data && riskScores.data.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader
+            title="Model risk score — advisory"
+            description="Rung 2: an unsupervised model surfaces statistical outliers the rules do not encode. It advises, never decides — a reviewer weighs the score and its reason."
+          />
+          <div className="px-5 pb-2">
+            <InfoNote>
+              Each score is explained by <strong>exact Shapley values</strong> — the features
+              below sum to the anomaly score, so the reason a line was flagged is auditable,
+              not a black box. Model{" "}
+              <span className="font-mono text-micro">{riskScores.data[0].model_version}</span>.
+            </InfoNote>
+          </div>
+          <ul className="divide-y divide-hairline">
+            {riskScores.data.map((s) => (
+              <RiskScoreRow key={s.document_ref} score={s} />
+            ))}
+          </ul>
+        </Card>
+      )}
     </div>
+  );
+}
+
+function RiskScoreRow({ score }: { score: RiskScore }) {
+  const top = score.attributions.filter((a) => a.contribution > 0).slice(0, 4);
+  const max = Math.max(...top.map((a) => a.contribution), 0.0001);
+  return (
+    <li className="px-5 py-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Sparkles size={14} className="text-accent" aria-hidden />
+        <span className="font-mono text-micro text-ink-muted">{score.document_ref}</span>
+        <span className="text-small text-ink-secondary">{score.counterparty}</span>
+        <div className="flex-1" />
+        <span className="text-micro text-ink-muted">
+          rank #{score.rank} · {Math.round(score.percentile * 100)}th percentile
+        </span>
+        <span className="tabular rounded-sm bg-accent-subtle px-1.5 py-0.5 text-micro font-medium text-accent">
+          {score.score.toFixed(3)}
+        </span>
+      </div>
+      <p className="mt-1 text-small text-ink">
+        Flagged because {score.reason}.
+      </p>
+      <div className="mt-2 space-y-1">
+        {top.map((a) => (
+          <div key={a.feature} className="flex items-center gap-2">
+            <span className="w-40 shrink-0 text-micro text-ink-muted">
+              {FEATURE_LABEL[a.feature] ?? a.feature}
+            </span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full bg-accent"
+                style={{ width: `${(a.contribution / max) * 100}%` }}
+              />
+            </div>
+            <span className="tabular w-14 shrink-0 text-right font-mono text-micro text-ink-muted">
+              +{a.contribution.toFixed(3)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </li>
   );
 }
 

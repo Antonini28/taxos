@@ -182,6 +182,39 @@ async def test_anomalies_are_tenant_isolated(session_a, session_b, tenant_a, sca
     assert (await session_b.execute(select(Anomaly))).scalars().all() == []
 
 
+# --- Rung 2: the model runs beside the rules --------------------------------------
+
+
+async def test_scan_produces_advisory_risk_scores_with_stored_explanations(
+    session_a, tenant_a, scanned
+):
+    """The scan runs the statistical model alongside the rules and persists the flagged
+    lines — each with the model version and its exact Shapley attribution stored at
+    scoring time, so 'why' survives even after the model moves."""
+    entity_id, _ = scanned
+    scores = await RiskService(session_a, tenant_a, REVIEWER).list_risk_scores(
+        entity_id=entity_id, period_key="2026-Q2"
+    )
+    assert scores  # at least one line surfaced
+    top = scores[0]
+    assert top.rank == 1
+    assert top.model_version.startswith("isoforest")
+    assert top.attributions  # the Shapley explanation, stored
+    assert all("feature" in a and "contribution" in a for a in top.attributions)
+
+
+async def test_rescanning_replaces_risk_scores_deterministically(session_a, tenant_a, scanned):
+    """Scores are a deterministic function of the population, so a re-scan replaces them
+    rather than accumulating — same count, identical values."""
+    entity_id, _ = scanned
+    service = RiskService(session_a, tenant_a, REVIEWER)
+    before = await service.list_risk_scores(entity_id=entity_id, period_key="2026-Q2")
+    await service.scan(entity_id=entity_id, period_key="2026-Q2")
+    after = await service.list_risk_scores(entity_id=entity_id, period_key="2026-Q2")
+    assert len(before) == len(after)
+    assert [float(s.score) for s in before] == [float(s.score) for s in after]
+
+
 async def test_scan_records_zero_result_distinctly(session_a, tenant_a):
     """A clean population yields a scan with zero flags — not the absence of a scan."""
     from taxos_core.risk.models import AnomalyScan

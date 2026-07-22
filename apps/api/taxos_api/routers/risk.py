@@ -54,6 +54,23 @@ class SummaryOut(BaseModel):
     high_open: int
 
 
+class AttributionOut(BaseModel):
+    feature: str
+    value: float
+    contribution: float
+
+
+class RiskScoreOut(BaseModel):
+    document_ref: str
+    counterparty: str
+    score: float
+    rank: int
+    percentile: float
+    reason: str
+    model_version: str
+    attributions: list[AttributionOut]
+
+
 def _service(session: AsyncSession, principal: Principal) -> RiskService:
     return RiskService(session, principal.tenant_id, principal.actor)
 
@@ -92,6 +109,30 @@ async def list_anomalies(
 ) -> list[AnomalyOut]:
     anomalies = await _service(session, principal).list_anomalies(status=status)
     return [_out(a) for a in anomalies]
+
+
+@router.get("/risk-scores", response_model=list[RiskScoreOut])
+async def risk_scores(
+    entity_id: uuid.UUID, period_key: str, principal: PrincipalDep, session: SessionDep
+) -> list[RiskScoreOut]:
+    """The Rung-2 model's flagged lines for an entity-period, with their Shapley reasons.
+    Advisory context beside the rule anomalies — there is no endpoint that acts on a score."""
+    scores = await _service(session, principal).list_risk_scores(
+        entity_id=entity_id, period_key=period_key
+    )
+    return [
+        RiskScoreOut(
+            document_ref=s.document_ref,
+            counterparty=s.counterparty,
+            score=float(s.score),
+            rank=s.rank,
+            percentile=float(s.percentile),
+            reason=s.reason,
+            model_version=s.model_version,
+            attributions=[AttributionOut(**a) for a in s.attributions],
+        )
+        for s in scores
+    ]
 
 
 @router.post("/scan", status_code=status.HTTP_201_CREATED)

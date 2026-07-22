@@ -8,8 +8,9 @@ recorded — reason-coded, attributed, and timestamped.
 
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from taxos_core.ingestion.models import Batch, TransactionRow
@@ -20,6 +21,7 @@ from taxos_core.risk.models import (
     Anomaly,
     AnomalyScan,
     AnomalyStatus,
+    RiskScore,
 )
 from taxos_core.shared.persistence.base import utcnow
 from taxos_core.shared.persistence.uow import Actor, AuditedUnitOfWork
@@ -56,7 +58,6 @@ class RiskService:
             .scalars()
             .all()
         )
-        row_by_id = {str(r.id): r for r in rows}
         transactions = [
             Transaction(
                 row_id=str(r.id),
@@ -119,6 +120,10 @@ class RiskService:
             )
             new_count += 1
 
+        # Rung 2: the statistical model scores the same population the rules just judged.
+        # Advisory and additive — it never overrides a rule finding, it sits beside it.
+        model_version, scored_count = await self._score_risk(entity_id, period_key, transactions)
+
         uow.record(
             "anomaly_scan.completed",
             "anomaly_scan",
@@ -130,6 +135,8 @@ class RiskService:
                 "flagged": len(findings),
                 "new": new_count,
                 "detector_version": DETECTOR_VERSION,
+                "risk_model": model_version,
+                "risk_flagged": scored_count,
             },
         )
         uow.publish(
@@ -138,13 +145,67 @@ class RiskService:
         )
         await uow.commit()
 
-        _ = row_by_id  # retained for future SHAP-style enrichment
         return ScanResult(
             scan_id=scan.id,
             rows_scanned=len(rows),
             flagged=len(findings),
             new_anomalies=new_count,
         )
+
+    async def _score_risk(
+        self, entity_id: uuid.UUID, period_key: str, transactions: list[Transaction]
+    ) -> tuple[str, int]:
+        """Score the population with the Rung-2 model and persist the flagged lines with their
+        exact Shapley explanations. Re-scoring replaces the prior set — scores are a
+        deterministic function of the population and model version, not accumulated history.
+
+        Imported locally so the model stack (scikit-learn) loads only when a scan runs, never
+        at API import time."""
+        from taxos_core.ml import MODEL_VERSION, score_population
+
+        await self._s.execute(
+            delete(RiskScore).where(
+                RiskScore.entity_id == entity_id, RiskScore.period_key == period_key
+            )
+        )
+        flagged = [s for s in score_population(transactions) if s.flagged]
+        for s in flagged:
+            self._s.add(
+                RiskScore(
+                    tenant_id=self._tenant_id,
+                    entity_id=entity_id,
+                    period_key=period_key,
+                    row_id=uuid.UUID(s.row_id),
+                    document_ref=s.document_ref,
+                    counterparty=s.counterparty,
+                    model_version=s.model_version,
+                    score=Decimal(str(s.score)),
+                    rank=s.rank,
+                    percentile=Decimal(str(s.percentile)),
+                    flagged=s.flagged,
+                    reason=s.reason,
+                    attributions=[
+                        {
+                            "feature": a.feature,
+                            "value": round(a.value, 6),
+                            "contribution": round(a.contribution, 6),
+                        }
+                        for a in s.attributions
+                    ],
+                    created_by=self._actor.ref,
+                )
+            )
+        return MODEL_VERSION, len(flagged)
+
+    async def list_risk_scores(self, *, entity_id: uuid.UUID, period_key: str) -> list[RiskScore]:
+        """The flagged lines the model surfaced, most-anomalous first — advisory context a
+        reviewer weighs alongside the rule anomalies."""
+        result = await self._s.execute(
+            select(RiskScore)
+            .where(RiskScore.entity_id == entity_id, RiskScore.period_key == period_key)
+            .order_by(RiskScore.rank)
+        )
+        return list(result.scalars().all())
 
     async def disposition(
         self,
