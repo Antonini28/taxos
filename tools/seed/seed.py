@@ -31,16 +31,18 @@ SALES_CSV = (
     b"SI-2606,2026-06-24,Northwind Retail Group,36200.00,7240.00,S20,GBP\n"
 )
 
-# Two seeded findings live in this file — see FINDINGS.md:
-#   PI-2607 carries an unrecognised VAT code (ING-005)
-#   PI-2609 dates outside the quarter (ING-003)
+# Seeded findings in this file — see FINDINGS.md:
+#   PI-2607 carries an unrecognised VAT code (ING-005, quarantined at ingestion)
+#   PI-2609 dates outside the quarter (ING-003, quarantined at ingestion)
+#   PI-2605 duplicates PI-2601 exactly (DUP-001, HIGH — same supplier, same £12,400)
+#   PI-2602 is an exact round £48,000 (RND-001, LOW)
 PURCHASES_CSV = (
     b"document_ref,document_date,counterparty,net_amount,vat_amount,vat_code,currency\n"
     b"PI-2601,2026-04-11,Apex Supplies Ltd,12400.00,2480.00,S20,GBP\n"
     b"PI-2602,2026-04-15,Delta Construction Ltd,48000.00,0.00,RC20,GBP\n"
     b"PI-2603,2026-04-29,Orchard Facilities,3250.00,650.00,S20,GBP\n"
     b"PI-2604,2026-05-12,Kestrel IT Services,8800.00,1760.00,S20,GBP\n"
-    b"PI-2605,2026-05-27,Apex Supplies Ltd,15600.00,3120.00,S20,GBP\n"
+    b"PI-2605,2026-05-27,Apex Supplies Ltd,12400.00,2480.00,S20,GBP\n"  # duplicates PI-2601
     b"PI-2606,2026-06-09,Meridian Utilities,2100.00,105.00,R05,GBP\n"
     b"PI-2607,2026-06-15,Vantage Consulting,7500.00,1500.00,XX9,GBP\n"
     b"PI-2608,2026-06-18,Delta Construction Ltd,22000.00,0.00,RC20,GBP\n"
@@ -48,6 +50,8 @@ PURCHASES_CSV = (
 )
 
 TABLES_TO_CLEAR = [
+    "anomaly",
+    "anomaly_scan",
     "agent_step",
     "agent_run",
     "approval",

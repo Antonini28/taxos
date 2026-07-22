@@ -91,7 +91,8 @@ async def clean_db(engine, admin_engine):
     async with admin_engine.begin() as conn:
         await conn.execute(
             text(
-                "TRUNCATE agent_step, agent_run, approval, workflow_transition, work_item, "
+                "TRUNCATE anomaly, anomaly_scan, agent_step, agent_run, approval, "
+                "workflow_transition, work_item, "
                 "computation_line_source, computation_line, computation, "
                 "validation_result, quarantine_row, transaction_row, batch, "
                 "audit_event, outbox_event, tax_registration, legal_entity, tenant "

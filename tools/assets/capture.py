@@ -13,6 +13,10 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252; the status glyphs below need UTF-8.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 from playwright.async_api import async_playwright
 
 OUT = Path(__file__).resolve().parents[2] / "docs" / "assets" / "screens"
@@ -26,6 +30,7 @@ SHOTS = [
     ("vat-return", "/tax/vat", "box_4"),
     ("ingestion", "/data/batches", "first-batch"),
     ("agents", "/agents", "first-run"),
+    ("fraud", "/fraud", None),
     ("approvals", "/work/approvals", "first-item"),
     ("audit", "/audit", None),
     ("operations", "/", None),
