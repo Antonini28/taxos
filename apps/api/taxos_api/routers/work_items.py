@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from taxos_contracts.workflow import (
     ApprovalEligibility,
@@ -14,6 +15,7 @@ from taxos_contracts.workflow import (
     TransitionRequest,
     WorkItemOut,
 )
+from taxos_core.reporting.evidence import EvidenceService, NotApprovedError, render_html
 from taxos_core.workflow.service import (
     NotReviewableError,
     SegregationOfDutiesError,
@@ -134,3 +136,24 @@ async def history(
 ) -> list[TransitionOut]:
     transitions = await _service(session, principal).history(work_item_id)
     return [TransitionOut.model_validate(t, from_attributes=True) for t in transitions]
+
+
+@router.get("/{work_item_id}/evidence-pack", response_class=HTMLResponse)
+async def evidence_pack(
+    work_item_id: uuid.UUID, principal: PrincipalDep, session: SessionDep
+) -> HTMLResponse:
+    """The audit-ready download (US-603). A single self-contained HTML document —
+    figures, lineage, approvals, agent trace, anomalies, and a chain-verification result —
+    served with a filename so a browser saves rather than renders it inline."""
+    service = EvidenceService(session, principal.tenant_id, principal.actor)
+    try:
+        pack = await service.build(work_item_id)
+    except NotApprovedError as exc:
+        raise ConflictError(str(exc)) from exc
+
+    document = render_html(pack)
+    filename = f"evidence-{pack.entity_name.replace(' ', '-')}-{pack.period_key}.html"
+    return HTMLResponse(
+        content=document,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

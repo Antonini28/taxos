@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fingerprint, ShieldCheck, Stamp, UserCheck } from "lucide-react";
+import { FileCheck2, Fingerprint, ShieldCheck, Stamp, UserCheck } from "lucide-react";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -185,6 +185,31 @@ export default function ApprovalsPage() {
   );
 }
 
+function ExportEvidenceButton({ workItemId }: { workItemId: string }) {
+  const download = useMutation({
+    mutationFn: async () => {
+      const blob = await api.download(`/api/v1/work-items/${workItemId}/evidence-pack`);
+      const url = URL.createObjectURL(blob);
+      // Open in a new tab: the pack is a readable document, and the browser prints it to
+      // PDF from there. A blob URL keeps it fully client-side once fetched.
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    },
+  });
+
+  return (
+    <Button
+      variant="primary"
+      className="mt-3 w-full"
+      loading={download.isPending}
+      onClick={() => download.mutate()}
+    >
+      <FileCheck2 size={14} aria-hidden />
+      Export evidence pack
+    </Button>
+  );
+}
+
 function ReviewPanel({ item, actingAs }: { item: WorkItem; actingAs: string }) {
   const queryClient = useQueryClient();
   const [comment, setComment] = useState("");
@@ -306,6 +331,7 @@ function ReviewPanel({ item, actingAs }: { item: WorkItem; actingAs: string }) {
                       {approval.void_reason}
                     </p>
                   )}
+                  {!approval.voided && <ExportEvidenceButton workItemId={item.id} />}
                 </div>
               ))
             ) : (

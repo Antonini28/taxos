@@ -75,6 +75,20 @@ export const api = {
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   upload: <T>(path: string, form: FormData) =>
     request<T>(path, { method: "POST", body: form }),
+  /**
+   * Fetch a file with the auth headers and hand back a blob. A plain <a href> cannot
+   * carry the dev-identity headers, so an authenticated download must go through fetch.
+   */
+  download: async (path: string): Promise<Blob> => {
+    const response = await fetch(`${BASE}${path}`, {
+      headers: { "X-Taxos-Tenant": DEV_IDENTITY.tenant, "X-Taxos-User": currentUser() },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, `Download failed (${response.status})`, null, null);
+    }
+    return response.blob();
+  },
 };
 
 // --- Response shapes (mirroring taxos_contracts) ------------------------------

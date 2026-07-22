@@ -11,6 +11,11 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252; the status glyphs below need UTF-8. Without this the
+# demo — the first thing anyone runs — crashes on its own first print line.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # Run this file directly or as a module — both should work for a demo command.
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -46,6 +51,15 @@ async def run_demo(*, approve: bool = False) -> None:
 
         print(OK.format(f"run ended in {outcome.run.state}"))
         work_item_id = outcome.run.work_item_id
+
+    print(STEP.format("Scanning for anomalies"))
+    async with tenant_session(TENANT_ID) as session:
+        from taxos_core.risk.service import RiskService
+
+        scan = await RiskService(session, TENANT_ID, PREPARER).scan(
+            entity_id=ENTITY_ID, period_key="2026-Q2"
+        )
+        print(OK.format(f"{scan.flagged} flagged of {scan.rows_scanned} transactions"))
 
     if work_item_id is None:
         print("\n  Run parked — nothing to review. Check the escalation in the workspace.")
@@ -89,7 +103,8 @@ async def run_demo(*, approve: bool = False) -> None:
         "  Ingestion  — 2 quarantined rows with their rule reasons\n"
         "  VAT        — 9 boxes, each drilling to invoices and HMRC citations\n"
         "  Agents     — the run above, step by step\n"
-        "  Approvals  — the gate; switch seats to approve\n"
+        "  Fraud      — the seeded duplicate (PI-2605 = PI-2601), reason-coded disposition\n"
+        "  Approvals  — the gate; switch seats to approve, then export the evidence pack\n"
         "  Audit      — the chain, verifiable on demand\n"
     )
 
