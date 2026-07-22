@@ -1,0 +1,93 @@
+name: CI
+
+# Runs the checks that exist and pass today. As the build catches up with the design
+# (frontend test suite, evals, image build, helm-validate — all specified in the phase
+# docs), their jobs join here rather than being promised by a badge that isn't earned.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · lint · 101 tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: taxos
+          POSTGRES_PASSWORD: taxos
+          POSTGRES_DB: taxos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taxos"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      # The suite runs against a separate database (tests truncate wholesale; the app
+      # DB must never be in reach). CI provisions it explicitly below.
+      TAXOS_TEST_DATABASE__DSN: postgresql+asyncpg://taxos_app:taxos_app@localhost:5432/taxos_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --locked
+
+      - name: Provision the application role and test database
+        # The app connects as a non-superuser so RLS is a real control — superusers and
+        # owners bypass it. Migration 0002 creates this role against the app database;
+        # here we mirror that for the test database the suite actually uses.
+        env:
+          PGPASSWORD: taxos
+        run: |
+          psql -h localhost -U taxos -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE DATABASE taxos_test OWNER taxos;
+          SQL
+
+      - name: Migrate both databases
+        run: |
+          uv run alembic upgrade head
+          TAXOS_DATABASE__MIGRATION_DSN=postgresql+asyncpg://taxos:taxos@localhost:5432/taxos_test \
+            uv run alembic upgrade head
+
+      - name: Lint and format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Tests (real Postgres, RLS enforced)
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend · types · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci --prefix apps/frontend
+      - run: npm run typecheck --prefix apps/frontend
+      - run: npm run build --prefix apps/frontend
+        env:
+          # The build should not require a live backend; rewrites resolve at request time.
+          TAXOS_API_URL: http://localhost:8000
