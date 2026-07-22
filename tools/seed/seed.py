@@ -108,9 +108,9 @@ async def _truncate_all() -> None:
 
 
 async def _seed_corporation_tax(session) -> None:  # noqa: ANN001
-    """Seed the CT adjustment batch and compute the charge — proving the pipeline is
-    tax-type-agnostic: a different pack and feed, the same engine, persistence and audit."""
-    from taxos_core.compliance.service import ComputationService
+    """Lay down the Corporation Tax adjustment batch — the data foundation only, exactly as
+    the VAT feeds are seeded. The agent cycle (in demo.py) computes it and hands off a work
+    item, so CT and VAT are prepared the same way."""
     from taxos_core.ingestion.models import Batch, BatchStatus, TransactionRow
 
     existing = (
@@ -160,29 +160,6 @@ async def _seed_corporation_tax(session) -> None:  # noqa: ANN001
             )
         await session.commit()
         print(f"created CT adjustment batch: {len(CT_ADJUSTMENTS)} lines")
-
-    computation = await ComputationService(session, TENANT_ID, PREPARER).compute_corporation_tax(
-        entity_id=ENTITY_ID, period_key=CT_PERIOD
-    )
-    print(f"computed corporation tax: charge £{computation.result.get('box_ct')}")
-
-    # Give CT the same governed lifecycle as VAT: a work item awaiting a second reviewer.
-    # The gate is tax-type-agnostic — the item is just item_type="CT_COMPUTATION".
-    from taxos_core.workflow.service import WorkflowService
-    from taxos_core.workflow.states import WorkItemState
-
-    workflow = WorkflowService(session, TENANT_ID, PREPARER)
-    items = await workflow.list_items()
-    if not any(i.item_type == "CT_COMPUTATION" and i.period_key == CT_PERIOD for i in items):
-        item = await workflow.create_work_item(
-            entity_id=ENTITY_ID,
-            period_key=CT_PERIOD,
-            item_type="CT_COMPUTATION",
-            title="Meridian UK · Corporation Tax FY2026",
-            computation_id=computation.id,
-        )
-        await workflow.transition(item.id, WorkItemState.AWAITING_REVIEW)
-        print(f"created CT work item awaiting review: {item.id}")
 
 
 async def seed(reset: bool = False) -> None:

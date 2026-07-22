@@ -24,14 +24,39 @@ from taxos_core.shared.persistence.uow import Actor, AuditedUnitOfWork
 from taxos_core.workflow.service import WorkflowService
 from taxos_core.workflow.states import WorkItemState
 
-# The plan for a VAT cycle. A fixed, reviewable sequence rather than an emergent one:
-# in a compliance domain, "the agent decided to try something" is a defect, not a feature.
+# A cycle is a fixed, reviewable sequence rather than an emergent one: in a compliance
+# domain, "the agent decided to try something" is a defect, not a feature.
 VAT_PLAN = [
     ("data", "Confirm the data foundation for the period"),
     ("vat", "Compute the VAT return and explain the result"),
     ("fraud", "Review the transaction population for anomalies"),
     ("reporting", "Assemble the review package and hand off to a human"),
 ]
+
+CT_PLAN = [
+    ("data", "Confirm the Corporation Tax adjustments are in place"),
+    ("ct", "Compute the Corporation Tax charge and explain the result"),
+    ("reporting", "Assemble the review package and hand off to a human"),
+]
+
+
+@dataclass(frozen=True)
+class TaxConfig:
+    """Everything the runtime needs to prepare one tax type: its plan, the feed it requires,
+    and the kind of work item it hands off. Adding a tax type is adding an entry here plus a
+    rule pack and a compute specialist — the execute loop and the approval gate do not change
+    (AP-3)."""
+
+    plan: list[tuple[str, str]]
+    required_sources: tuple[str, ...]
+    item_type: str
+    label: str
+
+
+TAX_CONFIG: dict[str, TaxConfig] = {
+    "VAT": TaxConfig(VAT_PLAN, ("AR", "AP"), "VAT_RETURN", "VAT"),
+    "CT": TaxConfig(CT_PLAN, ("CT",), "CT_COMPUTATION", "Corporation Tax"),
+}
 
 
 @dataclass
@@ -49,9 +74,28 @@ class Supervisor:
     async def start_vat_run(
         self, *, entity_id: uuid.UUID, period_key: str, goal: str | None = None
     ) -> AgentRun:
+        return await self._start_run(
+            tax_type="VAT", entity_id=entity_id, period_key=period_key, goal=goal
+        )
+
+    async def start_corporation_tax_run(
+        self, *, entity_id: uuid.UUID, period_key: str, goal: str | None = None
+    ) -> AgentRun:
+        return await self._start_run(
+            tax_type="CT", entity_id=entity_id, period_key=period_key, goal=goal
+        )
+
+    async def _start_run(
+        self, *, tax_type: str, entity_id: uuid.UUID, period_key: str, goal: str | None
+    ) -> AgentRun:
         """Create the run and its plan. Planning is a separate, audited act from execution
-        so an infeasible plan is refused before anything happens."""
-        plan = [{"agent": agent, "goal": step_goal} for agent, step_goal in VAT_PLAN]
+        so an infeasible plan is refused before anything happens. The plan comes from the
+        tax type's config — the Supervisor itself knows nothing VAT- or CT-specific."""
+        config = TAX_CONFIG.get(tax_type)
+        if config is None:
+            raise ValueError(f"no runtime configuration for tax type '{tax_type}'")
+
+        plan = [{"agent": agent, "goal": step_goal} for agent, step_goal in config.plan]
         unknown = [
             step["agent"]
             for step in plan
@@ -63,9 +107,10 @@ class Supervisor:
         uow = AuditedUnitOfWork(self._s, self._tenant_id, self._actor)
         run = AgentRun(
             tenant_id=self._tenant_id,
-            goal=goal or f"Prepare VAT return for {period_key}",
+            goal=goal or f"Prepare {config.label} for {period_key}",
             entity_id=entity_id,
             period_key=period_key,
+            tax_type=tax_type,
             state=RunState.PLANNING,
             plan=plan,
             requested_by=self._actor.ref,
@@ -79,9 +124,12 @@ class Supervisor:
             "agent_run.planned",
             "agent_run",
             str(run.id),
-            after={"goal": run.goal, "steps": len(plan), "period": period_key},
+            after={"goal": run.goal, "steps": len(plan), "period": period_key, "tax": tax_type},
         )
-        uow.publish("AgentRunRequested", {"run_id": str(run.id), "period_key": period_key})
+        uow.publish(
+            "AgentRunRequested",
+            {"run_id": str(run.id), "period_key": period_key, "tax_type": tax_type},
+        )
         await uow.commit()
         return run
 
@@ -102,12 +150,16 @@ class Supervisor:
                 break
 
             agent_name = step_spec["agent"]
+            config = TAX_CONFIG[run.tax_type]
             envelope = TaskEnvelope(
                 agent=agent_name,
                 goal=step_spec["goal"],
                 context_refs={
                     "entity_id": str(run.entity_id),
                     "period_key": run.period_key or "",
+                    # The data agent checks for exactly the feeds this tax type needs, so a
+                    # Corporation Tax run does not demand VAT's AR/AP extracts.
+                    "required_sources": ",".join(config.required_sources),
                 },
             )
 
@@ -198,13 +250,14 @@ class Supervisor:
         still compares two people — an agent cannot stand in for either of them.
         """
         workflow = WorkflowService(self._s, self._tenant_id, self._actor)
+        config = TAX_CONFIG[run.tax_type]
         computation_id = await self._latest_computation_id(run)
 
         item = await workflow.create_work_item(
             entity_id=run.entity_id,
             period_key=run.period_key,
-            item_type="VAT_RETURN",
-            title=f"VAT {run.period_key} · prepared by agent run",
+            item_type=config.item_type,
+            title=f"{config.label} {run.period_key} · prepared by agent run",
             computation_id=computation_id,
             prepared_by=run.requested_by,
         )
@@ -227,11 +280,14 @@ class Supervisor:
     async def _latest_computation_id(self, run) -> uuid.UUID | None:
         from taxos_core.compliance.models import Computation
 
+        # Bind to this run's own tax type: an entity may have both a VAT and a CT
+        # computation, and the work item must carry the right one.
         result = await self._s.execute(
             select(Computation.id)
             .where(
                 Computation.entity_id == run.entity_id,
                 Computation.period_key == run.period_key,
+                Computation.tax_type == run.tax_type,
             )
             .order_by(Computation.computed_at.desc())
             .limit(1)

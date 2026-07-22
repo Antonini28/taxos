@@ -35,6 +35,7 @@ class AgentRun(Base, TenantMixin, TimestampMixin):
         PgUUID(as_uuid=True), ForeignKey("legal_entity.id"), nullable=True
     )
     period_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tax_type: Mapped[str] = mapped_column(String(20), nullable=False, default="VAT")
 
     state: Mapped[str] = mapped_column(String(20), nullable=False, default=RunState.PLANNING)
     plan: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

@@ -31,6 +31,7 @@ class ToolGrantError(PermissionError):
 GRANTS: dict[str, set[str]] = {
     "data": {"list_batches", "get_batch_stats"},
     "vat": {"run_vat_computation", "get_computation", "get_lineage"},
+    "ct": {"run_ct_computation", "get_computation", "get_lineage"},
     "fraud": {"list_transactions", "get_batch_stats"},
     "reporting": {"get_computation", "create_work_item"},
 }
@@ -85,7 +86,12 @@ class DataAgent:
 
         # Missing sources park the run rather than proceeding on partial data. A return
         # computed from half the evidence is worse than no return, because it looks fine.
-        missing = {"AR", "AP"} - sources
+        # Which feeds count as "the data foundation" is the tax type's decision, passed in
+        # by the Supervisor — VAT needs AR and AP; Corporation Tax needs its adjustments.
+        required = {
+            s for s in envelope.context_refs.get("required_sources", "AR,AP").split(",") if s
+        }
+        missing = required - sources
         if missing:
             return ResultEnvelope(
                 agent=self.name,
@@ -204,6 +210,75 @@ class VatAgent:
         )
 
 
+class CtAgent:
+    """Triggers the deterministic engine for Corporation Tax, then explains the result.
+
+    The mirror of the VAT agent, on a different pack: it computes nothing itself, and its
+    envelope carries only references, so it cannot author a figure even by accident."""
+
+    name = "ct"
+
+    async def run(
+        self, envelope: TaskEnvelope, session: AsyncSession, tenant_id, actor: Actor
+    ) -> ResultEnvelope:
+        started = time.monotonic()
+        _check(self.name, "run_ct_computation")
+
+        entity_id = envelope.context_refs["entity_id"]
+        period = envelope.context_refs["period_key"]
+        service = ComputationService(session, tenant_id, actor)
+        try:
+            computation = await service.compute_corporation_tax(
+                entity_id=entity_id, period_key=period
+            )
+        except NoValidatedDataError as exc:
+            return ResultEnvelope(
+                agent=self.name,
+                status="ESCALATED",
+                tool_calls=[{"tool": "run_ct_computation", "error": str(exc)}],
+                escalation=Escalation(
+                    reason=str(exc),
+                    needed_input="Provide the Corporation Tax adjustments for the period.",
+                ),
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+
+        result = computation.result
+        observations: list[str] = []
+        if computation.unmapped_codes:
+            observations.append(
+                f"{len(computation.unmapped_codes)} unrecognised adjustment code(s) "
+                f"({', '.join(computation.unmapped_codes)}) contributed to no line — "
+                "the data or the rule pack needs a decision."
+            )
+
+        return ResultEnvelope(
+            agent=self.name,
+            status="COMPLETED",
+            output={
+                "computation_id": str(computation.id),
+                "result_hash": computation.result_hash,
+                "pack_ref": computation.pack_ref,
+                "observations": observations,
+                "narrative": (
+                    f"Corporation Tax computed under {computation.pack_ref}. "
+                    f"Taxable total profits {result.get('box_ttp')}, "
+                    f"charge {result.get('box_ct')} at the main rate."
+                ),
+            },
+            tool_calls=[
+                {
+                    "tool": "run_ct_computation",
+                    "args": {"entity_id": entity_id, "period": period},
+                    "computation_id": str(computation.id),
+                }
+            ],
+            confidence=Decimal("1.0"),
+            confidence_basis="DETERMINISTIC",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+
+
 class FraudAgent:
     """Rule-based anomaly review over the validated population (docs/ml — Rung 1).
 
@@ -292,5 +367,6 @@ class FraudAgent:
 SPECIALISTS = {
     DataAgent.name: DataAgent(),
     VatAgent.name: VatAgent(),
+    CtAgent.name: CtAgent(),
     FraudAgent.name: FraudAgent(),
 }

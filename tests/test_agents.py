@@ -177,6 +177,66 @@ async def test_agent_prepared_work_still_blocks_the_requester_from_approving(
     assert approved.approval.approver == "user:priya@dev"
 
 
+# --- AP-3: the same runtime prepares a different tax type ----------------------
+
+
+@pytest.fixture
+async def entity_with_ct_data(session_a, tenant_a):
+    """An entity with a Corporation Tax adjustment batch — a CT run's happy path."""
+    from tests.test_computation import _seed_ct_batch
+
+    entity = await EntityService(session_a, tenant_a, PREPARER).create_entity(
+        code="UK-CT", name="Meridian UK Ltd", jurisdiction_code="UK"
+    )
+    await _seed_ct_batch(session_a, tenant_a, entity.id)
+    return entity.id
+
+
+async def test_corporation_tax_run_hands_off_a_ct_work_item(
+    session_a, tenant_a, entity_with_ct_data
+):
+    """The Supervisor prepares Corporation Tax with no new orchestration: the plan comes from
+    the tax config, the ct specialist computes, and the handoff is a CT_COMPUTATION work item
+    carrying the CT computation — the same runtime, a different pack (AP-3)."""
+    from taxos_core.compliance.models import Computation
+
+    supervisor = Supervisor(session_a, tenant_a, PREPARER)
+    run = await supervisor.start_corporation_tax_run(
+        entity_id=entity_with_ct_data, period_key="2026"
+    )
+    outcome = await supervisor.execute(run.id)
+
+    assert outcome.run.state == RunState.HANDOFF
+    assert outcome.run.tax_type == "CT"
+    assert any(s.agent == "ct" and s.status == "COMPLETED" for s in outcome.steps)
+
+    item = await WorkflowService(session_a, tenant_a, PREPARER).get(outcome.run.work_item_id)
+    assert item.item_type == "CT_COMPUTATION"
+    assert item.state == WorkItemState.AWAITING_REVIEW
+
+    computation = (
+        await session_a.execute(select(Computation).where(Computation.id == item.computation_id))
+    ).scalar_one()
+    assert computation.tax_type == "CT"  # the run bound its own tax type, not VAT
+
+
+async def test_ct_run_needs_ct_data_not_vat_feeds(session_a, tenant_a):
+    """The data check is per tax type: a CT run parks for missing CT adjustments, and does
+    not demand VAT's AR/AP extracts."""
+    entity = await EntityService(session_a, tenant_a, PREPARER).create_entity(
+        code="UK-CT0", name="Dormant Ltd", jurisdiction_code="UK"
+    )
+    supervisor = Supervisor(session_a, tenant_a, PREPARER)
+    run = await supervisor.start_corporation_tax_run(entity_id=entity.id, period_key="2026")
+    outcome = await supervisor.execute(run.id)
+
+    assert outcome.run.state == RunState.WAITING_INPUT
+    assert outcome.run.work_item_id is None
+    assert "CT" in outcome.run.escalation["reason"]
+    escalated = [s for s in outcome.steps if s.status == "ESCALATED"]
+    assert len(escalated) == 1 and escalated[0].agent == "data"
+
+
 # --- budgets, audit, immutability ---------------------------------------------
 
 

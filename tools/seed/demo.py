@@ -52,6 +52,15 @@ async def run_demo(*, approve: bool = False) -> None:
         print(OK.format(f"run ended in {outcome.run.state}"))
         work_item_id = outcome.run.work_item_id
 
+    print(STEP.format("Running the agent Corporation Tax cycle"))
+    async with tenant_session(TENANT_ID) as session:
+        supervisor = Supervisor(session, TENANT_ID, PREPARER)
+        ct_run = await supervisor.start_corporation_tax_run(entity_id=ENTITY_ID, period_key="2026")
+        ct_outcome = await supervisor.execute(ct_run.id)
+        for step in ct_outcome.steps:
+            print(OK.format(f"{step.agent}: {step.output.get('narrative', '')}"))
+        print(OK.format(f"CT run ended in {ct_outcome.run.state} — same engine, a different pack"))
+
     print(STEP.format("Scanning for anomalies"))
     async with tenant_session(TENANT_ID) as session:
         from taxos_core.risk.service import RiskService
