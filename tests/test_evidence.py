@@ -117,6 +117,61 @@ async def test_rendered_html_is_self_contained_and_shows_verification(
     assert pack.approvals[0]["content_hash"] in document  # the binding is in the pack
 
 
+@pytest.fixture
+async def approved_ct_item(session_a, tenant_a):
+    """A prepared and approved Corporation Tax computation — the same lifecycle as VAT, on a
+    different tax type, so the whole governed pipeline is proven tax-agnostic (AP-3)."""
+    from tests.test_computation import _seed_ct_batch
+
+    entity = await EntityService(session_a, tenant_a, PREPARER).create_entity(
+        code="UK-CT", name="Meridian UK Ltd", jurisdiction_code="UK"
+    )
+    await _seed_ct_batch(session_a, tenant_a, entity.id)
+    computation = await ComputationService(session_a, tenant_a, PREPARER).compute_corporation_tax(
+        entity_id=entity.id, period_key="2026"
+    )
+
+    workflow = WorkflowService(session_a, tenant_a, PREPARER)
+    item = await workflow.create_work_item(
+        entity_id=entity.id,
+        period_key="2026",
+        item_type="CT_COMPUTATION",
+        title="Meridian UK · Corporation Tax FY2026",
+        computation_id=computation.id,
+    )
+    item = await workflow.transition(item.id, WorkItemState.AWAITING_REVIEW)
+    await WorkflowService(session_a, tenant_a, REVIEWER).approve(
+        item.id, content_hash=item.content_hash, comment="Adjustments agreed to the accounts."
+    )
+    return item.id
+
+
+async def test_corporation_tax_gets_the_same_evidence_pack_as_vat(
+    session_a, tenant_a, approved_ct_item
+):
+    """The audit-ready download works for Corporation Tax with no CT-specific evidence code:
+    the pack carries the derived charge, the lineage reconciles, and every figure is cited."""
+    from decimal import Decimal
+
+    pack = await EvidenceService(session_a, tenant_a, REVIEWER).build(approved_ct_item)
+
+    assert pack.chain_verified is True
+    box_values = {b["box_id"]: Decimal(b["value"]) for b in pack.boxes}
+    assert box_values["box_ct"] == Decimal("161250.00")
+
+    for box_id, entries in pack.lineage.items():
+        total = sum(Decimal(x["amount"]) for x in entries)
+        assert total.quantize(Decimal("0.01")) == box_values[box_id].quantize(Decimal("0.01"))
+
+    citations = {x["citation_ref"] for entries in pack.lineage.values() for x in entries}
+    assert any("CTA 2009" in c for c in citations)
+
+    document = render_html(pack)
+    assert document.startswith("<!doctype html>")
+    assert "Corporation Tax" in document  # the item title carries through
+    assert pack.approvals[0]["content_hash"] in document
+
+
 async def test_pack_carries_the_agent_trace_when_agent_prepared(session_a, tenant_a):
     """An agent-prepared item's pack includes the run's steps — the FR-302 trace as evidence."""
     from taxos_core.agents.supervisor import Supervisor

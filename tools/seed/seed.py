@@ -166,6 +166,24 @@ async def _seed_corporation_tax(session) -> None:  # noqa: ANN001
     )
     print(f"computed corporation tax: charge £{computation.result.get('box_ct')}")
 
+    # Give CT the same governed lifecycle as VAT: a work item awaiting a second reviewer.
+    # The gate is tax-type-agnostic — the item is just item_type="CT_COMPUTATION".
+    from taxos_core.workflow.service import WorkflowService
+    from taxos_core.workflow.states import WorkItemState
+
+    workflow = WorkflowService(session, TENANT_ID, PREPARER)
+    items = await workflow.list_items()
+    if not any(i.item_type == "CT_COMPUTATION" and i.period_key == CT_PERIOD for i in items):
+        item = await workflow.create_work_item(
+            entity_id=ENTITY_ID,
+            period_key=CT_PERIOD,
+            item_type="CT_COMPUTATION",
+            title="Meridian UK · Corporation Tax FY2026",
+            computation_id=computation.id,
+        )
+        await workflow.transition(item.id, WorkItemState.AWAITING_REVIEW)
+        print(f"created CT work item awaiting review: {item.id}")
+
 
 async def seed(reset: bool = False) -> None:
     async with tenant_session(TENANT_ID) as session:

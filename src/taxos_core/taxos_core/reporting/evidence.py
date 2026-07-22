@@ -221,6 +221,14 @@ def _money(value: str) -> str:
     return f"£{Decimal(value):,.2f}"
 
 
+def _box_ref(box_id: str) -> str:
+    """A short, tax-type-neutral reference for a box. VAT numbers its boxes ("Box 1"); a
+    Corporation Tax pack names its lines ("PBT", "TTP"), so a numeric suffix becomes "Box N"
+    and anything else becomes its uppercased name."""
+    suffix = box_id.replace("box_", "")
+    return f"Box {suffix}" if suffix.isdigit() else suffix.upper()
+
+
 def render_html(pack: EvidencePack) -> str:
     """A single self-contained HTML document. Deliberately plain and print-friendly —
     an evidence pack is a legal artifact, not a marketing page."""
@@ -231,7 +239,7 @@ def render_html(pack: EvidencePack) -> str:
         for box in pack.boxes:
             lineage = pack.lineage.get(box["box_id"], [])
             rows.append(
-                f"<tr><td class='mono'>{e(box['box_id'].replace('box_', 'Box '))}</td>"
+                f"<tr><td class='mono'>{e(_box_ref(box['box_id']))}</td>"
                 f"<td>{e(box['label'])}</td>"
                 f"<td class='num'>{_money(box['value'])}</td>"
                 f"<td class='num'>{len(lineage)}</td></tr>"
@@ -250,7 +258,7 @@ def render_html(pack: EvidencePack) -> str:
             )
             total = sum(Decimal(x["amount"]) for x in entries)
             out.append(
-                f"<h3>{e(box_id.replace('box_', 'Box '))} — contributing transactions</h3>"
+                f"<h3>{e(_box_ref(box_id))} — contributing rows</h3>"
                 "<table><thead><tr><th>Document</th><th>Counterparty</th><th>Treatment</th>"
                 "<th class='num'>Amount</th><th>Authority</th></tr></thead>"
                 f"<tbody>{rows}</tbody>"
@@ -335,7 +343,7 @@ def render_html(pack: EvidencePack) -> str:
 <div class="meta mono small">rule pack {e(pack.computation.get("pack_ref", "—"))} ·
   engine {e(pack.computation.get("engine_version", "—"))} ·
   result hash {e(pack.computation.get("result_hash", "—"))}</div>
-<table><thead><tr><th>Box</th><th>Description</th><th class="num">Value</th>
+<table><thead><tr><th>Ref</th><th>Description</th><th class="num">Value</th>
   <th class="num">Sources</th></tr></thead><tbody>{box_rows()}</tbody></table>
 
 <h2>Lineage</h2>
