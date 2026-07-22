@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend · lint · 101 tests
+    name: Backend · lint · tests
     runs-on: ubuntu-latest
     services:
       postgres:
