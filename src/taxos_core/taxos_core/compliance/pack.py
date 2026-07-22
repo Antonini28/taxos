@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+from taxos_core.compliance.formula import FormulaError, formula_refs, validate_formula
+
 PACKS_ROOT = Path(__file__).resolve().parents[4] / "packs"
 
 
@@ -63,6 +65,9 @@ class RulePack:
     codes: dict[str, CodeRule]
     boxes: dict[str, BoxDef]
     content_hash: str
+    # Derived boxes in dependency order: a box whose formula builds on another derived box
+    # comes after it, so the engine can evaluate them in a single left-to-right pass.
+    derivation_order: tuple[str, ...] = ()
 
     @property
     def ref(self) -> str:
@@ -116,6 +121,12 @@ def parse_pack(raw: str) -> RulePack:
                 if box_id not in boxes:
                     raise PackError(f"code {rule.code} maps to unknown box '{box_id}'")
 
+    # Derived boxes are computed by the engine from their declared formulas, so the
+    # arithmetic is content, not code (AP-3). Validate every formula at load: it must be
+    # present, well-formed, and reference only boxes that exist — a malformed derivation
+    # fails here, never as a subtly wrong return.
+    derivation_order = _validate_derivations(boxes)
+
     rounding = data.get("rounding") or {}
     return RulePack(
         name=_require(data, "pack", "pack"),
@@ -128,7 +139,52 @@ def parse_pack(raw: str) -> RulePack:
         codes=codes,
         boxes=boxes,
         content_hash=content_hash,
+        derivation_order=derivation_order,
     )
+
+
+def _validate_derivations(boxes: dict[str, BoxDef]) -> tuple[str, ...]:
+    """Check every derived box's formula and return the derived boxes in dependency order.
+
+    A derived box needs a formula that parses within the permitted grammar and references
+    only known boxes. The ordering is a topological sort so a formula that builds on another
+    derived box (VAT Box 5 depends on Box 3) is evaluated after it; a cycle is a pack error.
+    """
+    derived = {b.id for b in boxes.values() if b.derived}
+    for box in boxes.values():
+        if not box.derived:
+            continue
+        if box.formula is None:
+            raise PackError(f"derived box '{box.id}' has no formula")
+        try:
+            validate_formula(box.formula)
+        except FormulaError as exc:
+            raise PackError(f"box '{box.id}': {exc}") from exc
+        for ref in formula_refs(box.formula):
+            if ref not in boxes:
+                raise PackError(f"box '{box.id}' formula references unknown box '{ref}'")
+
+    order: list[str] = []
+    done: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(box_id: str) -> None:
+        if box_id in done:
+            return
+        if box_id in visiting:
+            raise PackError(f"cyclic derived-box formula involving '{box_id}'")
+        visiting.add(box_id)
+        for ref in formula_refs(boxes[box_id].formula or ""):
+            if ref in derived:
+                visit(ref)
+        visiting.discard(box_id)
+        done.add(box_id)
+        order.append(box_id)
+
+    for box_id in boxes:  # insertion order keeps the result deterministic
+        if box_id in derived:
+            visit(box_id)
+    return tuple(order)
 
 
 def load_pack(name: str, version: str, root: Path | None = None) -> RulePack:

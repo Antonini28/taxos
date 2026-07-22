@@ -19,6 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from taxos_core.audit.hashing import canonical_json
+from taxos_core.compliance.formula import eval_formula
 from taxos_core.compliance.pack import RulePack
 
 ENGINE_VERSION = "1.0.0"
@@ -159,9 +160,14 @@ def compute_vat_return(transactions: list[EngineTransaction], pack: RulePack) ->
                 )
             )
 
-    # Derived boxes, computed from the primary totals per the pack's formulas.
-    totals["box_3"] = totals["box_1"] + totals["box_2"]
-    totals["box_5"] = abs(totals["box_3"] - totals["box_4"])
+    # Derived boxes: evaluate each pack-declared formula over the primary totals, in the
+    # dependency order the pack computed at load. This is what keeps the arithmetic in the
+    # pack rather than the engine — a new tax type derives its totals the same way, without
+    # a line changing here (AP-3).
+    for box_id in pack.derivation_order:
+        formula = pack.boxes[box_id].formula
+        assert formula is not None  # guaranteed by pack validation at load
+        totals[box_id] = eval_formula(formula, totals)
 
     boxes: dict[str, BoxValue] = {}
     for box_id, definition in pack.boxes.items():

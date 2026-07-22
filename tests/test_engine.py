@@ -243,3 +243,63 @@ boxes:
 """
     with pytest.raises(PackError, match="unknown box"):
         parse_pack(broken)
+
+
+# --- AP-3: derived-box formulas are validated as content ----------------------
+
+_MINIMAL_PACK = """
+pack: t
+version: 0.0.1
+jurisdiction: UK
+tax_type: TEST
+codes: {{}}
+boxes:
+  box_a: {{ label: "A" }}
+  box_b: {{ label: "B", derived: true, formula: "{formula}" }}
+"""
+
+
+def test_pack_derivation_order_puts_dependencies_first():
+    """VAT Box 5 depends on Box 3, so the pack must order 3 before 5 for a single pass."""
+    assert PACK.derivation_order.index("box_3") < PACK.derivation_order.index("box_5")
+
+
+def test_pack_rejects_derived_box_without_a_formula():
+    from taxos_core.compliance.pack import PackError, parse_pack
+
+    broken = """
+pack: t
+version: 0.0.1
+jurisdiction: UK
+tax_type: TEST
+codes: {}
+boxes:
+  box_a: { label: "A" }
+  box_b: { label: "B", derived: true }
+"""
+    with pytest.raises(PackError, match="no formula"):
+        parse_pack(broken)
+
+
+def test_pack_rejects_formula_referencing_unknown_box():
+    from taxos_core.compliance.pack import PackError, parse_pack
+
+    with pytest.raises(PackError, match="unknown box"):
+        parse_pack(_MINIMAL_PACK.format(formula="box_a + box_z"))
+
+
+def test_pack_rejects_cyclic_derivations():
+    from taxos_core.compliance.pack import PackError, parse_pack
+
+    cyclic = """
+pack: t
+version: 0.0.1
+jurisdiction: UK
+tax_type: TEST
+codes: {}
+boxes:
+  box_a: { label: "A", derived: true, formula: "box_b + 1" }
+  box_b: { label: "B", derived: true, formula: "box_a + 1" }
+"""
+    with pytest.raises(PackError, match="cyclic"):
+        parse_pack(cyclic)
