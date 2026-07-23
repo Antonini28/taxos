@@ -41,7 +41,7 @@ export function CardHeader({
   );
 }
 
-type StatusTone = "good" | "warning" | "serious" | "critical" | "neutral";
+export type StatusTone = "good" | "warning" | "serious" | "critical" | "neutral";
 
 const TONE_STYLES: Record<StatusTone, string> = {
   good: "border-status-good/30 bg-status-good/10 text-status-good",

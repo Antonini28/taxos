@@ -29,6 +29,7 @@ SHOTS = [
     ("dashboard", "/dashboard", None),
     ("vat-return", "/tax/vat", "box_4"),
     ("corporation-tax", "/tax/corporation-tax", "ct-addbacks"),
+    ("calendar", "/tax/calendar", None),
     ("ingestion", "/data/batches", "first-batch"),
     ("agents", "/agents", "first-run"),
     ("fraud", "/fraud", None),

@@ -44,7 +44,7 @@ const NAV_GROUPS = [
     items: [
       { href: "/tax/vat", label: "VAT", icon: Calculator },
       { href: "/tax/corporation-tax", label: "Corporation Tax", icon: Landmark },
-      { href: "/tax/calendar", label: "Calendar", icon: FileCheck2, soon: true },
+      { href: "/tax/calendar", label: "Calendar", icon: FileCheck2 },
     ],
   },
   {
@@ -140,11 +140,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     <Icon size={16} aria-hidden />
                     <span className="flex-1">{item.label}</span>
-                    {item.soon && (
-                      <span className="rounded-sm bg-surface-2 px-1 text-micro text-ink-muted">
-                        soon
-                      </span>
-                    )}
                   </Link>
                 );
               })}

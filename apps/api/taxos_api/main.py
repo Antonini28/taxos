@@ -17,6 +17,7 @@ from taxos_api.routers import (
     agent_runs,
     audit,
     batches,
+    calendar,
     computations,
     dashboards,
     knowledge,
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit.router, prefix="/api/v1")
     app.include_router(risk.router, prefix="/api/v1")
     app.include_router(knowledge.router, prefix="/api/v1")
+    app.include_router(calendar.router, prefix="/api/v1")
 
     @app.get("/healthz", tags=["platform"])
     async def healthz() -> dict[str, str]:
