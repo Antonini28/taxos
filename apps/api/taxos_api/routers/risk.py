@@ -71,6 +71,27 @@ class RiskScoreOut(BaseModel):
     attributions: list[AttributionOut]
 
 
+class FeatureImportanceOut(BaseModel):
+    feature: str
+    contribution: float
+
+
+class ModelStatusOut(BaseModel):
+    """Rung 3 readiness. When not sufficient, the counts are the evidence for the refusal."""
+
+    sufficient: bool
+    model_version: str
+    note: str
+    n_confirmed: int
+    n_true_negative: int
+    n_censored_excluded: int
+    min_per_class: int
+    model_auc: float | None
+    baseline_auc: float | None
+    beats_baseline: bool | None
+    feature_importance: list[FeatureImportanceOut]
+
+
 def _service(session: AsyncSession, principal: Principal) -> RiskService:
     return RiskService(session, principal.tenant_id, principal.actor)
 
@@ -133,6 +154,30 @@ async def risk_scores(
         )
         for s in scores
     ]
+
+
+@router.get("/model-status", response_model=ModelStatusOut)
+async def model_status(principal: PrincipalDep, session: SessionDep) -> ModelStatusOut:
+    """Rung-3 readiness: does the supervised model have enough labelled dispositions to train?
+    When it does not, this returns an evidenced 'not yet' with the counts — the same posture
+    the knowledge layer takes for INSUFFICIENT_SOURCES."""
+    report = await _service(session, principal).supervised_status()
+    return ModelStatusOut(
+        sufficient=report.sufficient,
+        model_version=report.model_version,
+        note=report.note,
+        n_confirmed=report.n_confirmed,
+        n_true_negative=report.n_true_negative,
+        n_censored_excluded=report.n_censored_excluded,
+        min_per_class=report.min_per_class,
+        model_auc=report.model_auc,
+        baseline_auc=report.baseline_auc,
+        beats_baseline=report.beats_baseline,
+        feature_importance=[
+            FeatureImportanceOut(feature=a.feature, contribution=a.contribution)
+            for a in report.feature_importance
+        ],
+    )
 
 
 @router.post("/scan", status_code=status.HTTP_201_CREATED)

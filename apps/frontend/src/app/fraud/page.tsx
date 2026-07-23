@@ -1,7 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, CircleX, Flag, RadarIcon, ShieldAlert, Sparkles } from "lucide-react";
+import {
+  CircleCheck,
+  CircleX,
+  Flag,
+  GraduationCap,
+  RadarIcon,
+  ShieldAlert,
+  Sparkles,
+} from "lucide-react";
 import { useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -77,6 +85,25 @@ const FEATURE_LABEL: Record<string, string> = {
   counterparty_zscore: "vs. counterparty's usual",
 };
 
+interface FeatureImportance {
+  feature: string;
+  contribution: number;
+}
+
+interface ModelStatus {
+  sufficient: boolean;
+  model_version: string;
+  note: string;
+  n_confirmed: number;
+  n_true_negative: number;
+  n_censored_excluded: number;
+  min_per_class: number;
+  model_auc: number | null;
+  baseline_auc: number | null;
+  beats_baseline: boolean | null;
+  feature_importance: FeatureImportance[];
+}
+
 const SEVERITY_TONE: Record<string, "critical" | "serious" | "neutral"> = {
   HIGH: "critical",
   MEDIUM: "serious",
@@ -104,6 +131,10 @@ export default function FraudPage() {
       api.get<RiskScore[]>(
         `/api/v1/anomalies/risk-scores?entity_id=${ENTITY_ID}&period_key=2026-Q2`,
       ),
+  });
+  const modelStatus = useQuery({
+    queryKey: ["model-status"],
+    queryFn: () => api.get<ModelStatus>("/api/v1/anomalies/model-status"),
   });
 
   const runScan = useMutation({
@@ -195,7 +226,98 @@ export default function FraudPage() {
           </ul>
         </Card>
       )}
+
+      {modelStatus.data && <SupervisedStatusCard status={modelStatus.data} />}
     </div>
+  );
+}
+
+function SupervisedStatusCard({ status }: { status: ModelStatus }) {
+  return (
+    <Card className="mt-6">
+      <CardHeader
+        title="Supervised model — Rung 3"
+        description="Learns from your dispositions: a confirm is a positive, a reason-coded dismissal a true negative. Censored dismissals (no time to review) are excluded, never counted as benign."
+      />
+      <div className="px-5 py-4">
+        {!status.sufficient ? (
+          <div className="flex items-start gap-3">
+            <GraduationCap size={20} className="mt-0.5 shrink-0 text-status-warning" aria-hidden />
+            <div className="min-w-0">
+              <h3 className="text-body font-medium">Not yet trained</h3>
+              <p className="mt-1 text-small text-ink-secondary">{status.note}</p>
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-micro text-ink-muted">
+                <span>
+                  confirmed{" "}
+                  <span className="font-mono text-ink">
+                    {status.n_confirmed}/{status.min_per_class}
+                  </span>
+                </span>
+                <span>
+                  true-negative{" "}
+                  <span className="font-mono text-ink">
+                    {status.n_true_negative}/{status.min_per_class}
+                  </span>
+                </span>
+                <span>
+                  censored excluded{" "}
+                  <span className="font-mono text-ink">{status.n_censored_excluded}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3">
+            <GraduationCap size={20} className="mt-0.5 shrink-0 text-status-good" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-body font-medium">
+                Trained · {status.model_version}
+                {status.beats_baseline && (
+                  <span className="ml-2 rounded-sm bg-accent-subtle px-1.5 py-0.5 text-micro font-medium text-accent">
+                    beats baseline
+                  </span>
+                )}
+              </h3>
+              <p className="mt-1 text-small text-ink-secondary">
+                Cross-validated ROC-AUC{" "}
+                <span className="tabular font-medium text-ink">
+                  {status.model_auc?.toFixed(3)}
+                </span>{" "}
+                vs a logistic-regression baseline at{" "}
+                <span className="tabular font-medium text-ink">
+                  {status.baseline_auc?.toFixed(3)}
+                </span>
+                . Trained on {status.n_confirmed + status.n_true_negative} labelled dispositions.
+              </p>
+              <div className="mt-3 space-y-1">
+                {status.feature_importance.map((f) => (
+                  <div key={f.feature} className="flex items-center gap-2">
+                    <span className="w-40 shrink-0 text-micro text-ink-muted">
+                      {FEATURE_LABEL[f.feature] ?? f.feature}
+                    </span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{
+                          width: `${
+                            (f.contribution /
+                              Math.max(
+                                ...status.feature_importance.map((a) => a.contribution),
+                                0.0001,
+                              )) *
+                            100
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

@@ -197,6 +197,64 @@ class RiskService:
             )
         return MODEL_VERSION, len(flagged)
 
+    async def supervised_status(self):  # noqa: ANN201 — returns ml.SupervisedReport
+        """Rung 3: learn a model from the reviewers' dispositions, or refuse if there are too
+        few. Dispositions are the label source; a confirm is a positive, a reason-coded
+        dismissal a true negative, a 'no time' dismissal excluded as censored. Features are
+        recomputed in each row's population context, so a label sees the same view the model
+        would at scoring time. sklearn is imported lazily, keeping API import light."""
+        from taxos_core.ml import build_labels, train_or_refuse
+        from taxos_core.ml.features import extract_features
+
+        dispositioned = list(
+            (await self._s.execute(select(Anomaly).where(Anomaly.status != AnomalyStatus.OPEN)))
+            .scalars()
+            .all()
+        )
+        if not dispositioned:
+            return train_or_refuse([], 0)
+
+        # Group by (entity, period) so features are computed over the right population.
+        groups: dict[tuple[uuid.UUID, str], list[Anomaly]] = {}
+        for anomaly in dispositioned:
+            groups.setdefault((anomaly.entity_id, anomaly.period_key), []).append(anomaly)
+
+        dispositions: list[tuple[list[float], str, str]] = []
+        for (entity_id, period_key), items in groups.items():
+            rows = list(
+                (
+                    await self._s.execute(
+                        select(TransactionRow)
+                        .join(Batch, Batch.id == TransactionRow.batch_id)
+                        .where(Batch.entity_id == entity_id, Batch.period_key == period_key)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            population = [
+                Transaction(
+                    row_id=str(r.id),
+                    document_ref=r.document_ref,
+                    counterparty=r.counterparty,
+                    net_amount=r.net_amount,
+                    vat_amount=r.vat_amount,
+                    vat_code=r.vat_code,
+                )
+                for r in rows
+            ]
+            matrix, row_ids = extract_features(population)
+            features_by_row = dict(zip(row_ids, matrix, strict=True))
+            for anomaly in items:
+                features = features_by_row.get(str(anomaly.row_id))
+                if features is not None:
+                    dispositions.append(
+                        (features, anomaly.status, anomaly.disposition_reason or "")
+                    )
+
+        examples, censored = build_labels(dispositions)
+        return train_or_refuse(examples, censored)
+
     async def list_risk_scores(self, *, entity_id: uuid.UUID, period_key: str) -> list[RiskScore]:
         """The flagged lines the model surfaced, most-anomalous first — advisory context a
         reviewer weighs alongside the rule anomalies."""

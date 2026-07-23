@@ -215,6 +215,19 @@ async def test_rescanning_replaces_risk_scores_deterministically(session_a, tena
     assert [float(s.score) for s in before] == [float(s.score) for s in after]
 
 
+async def test_supervised_model_refuses_until_enough_dispositions_exist(
+    session_a, tenant_a, scanned
+):
+    """Rung 3: with anomalies flagged but not yet dispositioned, the supervised model has no
+    labels — so it returns an evidenced 'not yet', not a model fitted to nothing (ML-1)."""
+    report = await RiskService(session_a, tenant_a, REVIEWER).supervised_status()
+    assert report.sufficient is False
+    assert report.n_confirmed == 0
+    assert report.n_true_negative == 0
+    assert report.model_auc is None
+    assert "INSUFFICIENT_LABELS" in report.note
+
+
 async def test_scan_records_zero_result_distinctly(session_a, tenant_a):
     """A clean population yields a scan with zero flags — not the absence of a scan."""
     from taxos_core.risk.models import AnomalyScan

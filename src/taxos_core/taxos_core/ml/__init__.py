@@ -8,14 +8,24 @@ from taxos_core.ml.explain import Attribution, shapley_attributions
 from taxos_core.ml.features import FEATURE_NAMES, extract_features
 from taxos_core.ml.model import MODEL_VERSION, RiskModel
 from taxos_core.ml.scoring import RiskScore, score_population
+from taxos_core.ml.supervised import (
+    SUPERVISED_MODEL_VERSION,
+    SupervisedReport,
+    build_labels,
+    train_or_refuse,
+)
 
 __all__ = [
     "FEATURE_NAMES",
     "MODEL_VERSION",
+    "SUPERVISED_MODEL_VERSION",
     "Attribution",
     "RiskModel",
     "RiskScore",
+    "SupervisedReport",
+    "build_labels",
     "extract_features",
     "score_population",
     "shapley_attributions",
+    "train_or_refuse",
 ]
