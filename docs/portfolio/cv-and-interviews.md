@@ -1,12 +1,30 @@
 # CV Bullets & Interview Bank
 
+> Refreshed 2026-07-23 to the BUILT system. Every claim below is verifiable in the repo —
+> nothing here names a technology that exists only in the design docs. (Where the design
+> specifies a production swap — LangGraph, LightGBM, MLflow, hybrid retrieval — say
+> "designed", not "built", if you mention it at all.)
+
+## 0. Flagship CV project entry (paste-ready, Selected AI Projects section)
+
+**TaxOS — Enterprise Agentic Tax Operating System** (open source: github.com/Antonini28/taxos).
+Governed multi-agent platform (Python, FastAPI, PostgreSQL, Next.js) carrying UK VAT **and**
+Corporation Tax from ERP extract to review-ready, evidence-attached state: deterministic rule
+engine with HMRC-cited per-figure lineage and tax types as data-driven content packs
+(Corporation Tax added with zero engine changes); an architectural human-approval gate —
+agent-callable approval endpoints do not exist; hash-chained audit trail with one-click
+evidence packs; RAG that cites or refuses; and an explainable risk-ML ladder (exact Shapley
+attributions; the supervised layer declines to train below a label floor). 169 tests against
+real PostgreSQL in CI, 18 ADRs, runs locally in five minutes with no API keys.
+
 ## 1. CV bullets (pick 3–4 per application; tailor set to the role)
 
 **AI Engineer / ML Engineer:**
-- Designed and built TaxOS, an enterprise multi-agent AI platform (LangGraph, Azure OpenAI, FastAPI, PostgreSQL) automating the UK VAT compliance lifecycle end-to-end under human-approval governance, documented across 18 Architecture Decision Records.
-- Engineered a governed agent runtime — capability-confined Tool Gateway, typed envelopes, run budgets, checkpointed escalation — with a CI-gated evaluation harness (golden datasets, mechanical invariants, LLM-judge with drift audit) blocking prompt/model regressions at merge.
-- Built an explainable fraud/anomaly estate for cold-start conditions: rules + per-population Isolation Forests stacking to LightGBM ranking as reviewer dispositions accumulate labels; TreeSHAP explanations stored at scoring time; MLflow registry with human-gated production promotion.
-- Implemented enterprise RAG with typed, mechanically-resolved citations (hybrid pgvector+BM25 retrieval, RRF fusion, cross-encoder reranking) achieving a ≥95% citation-support release gate and first-class "insufficient sources" refusals.
+- Built TaxOS, an open-source enterprise agentic tax platform (Python, FastAPI, PostgreSQL, Next.js): a multi-agent runtime prepares UK VAT and Corporation Tax end-to-end under an architectural human-approval gate — runs terminate in handoff, never approval, and the invariant is a named test. 169 tests against real PostgreSQL, CI-enforced; 18 ADRs.
+- Proved "tax types are content, not code" by making it falsifiable: generalised the engine's derived-box arithmetic into a pack-declared formula evaluator (VAT output proven byte-identical via reproducibility hashes), then added Corporation Tax as a rule pack — same engine, lineage, approval gate and evidence pack, zero tax-specific pipeline code.
+- Built an explainable risk-ML ladder for cold-start conditions: versioned rule detectors → a deterministic Isolation Forest whose every score carries an exact Shapley explanation (full coalition enumeration; contributions sum to the score) → a supervised GBM learning from reason-coded reviewer dispositions, excluding censored labels and refusing to train below a label floor with an evidenced INSUFFICIENT_LABELS verdict. Precision@10 = 100% on a labelled synthetic benchmark.
+- Implemented grounded tax research with citation-or-refusal semantics: recall-first Postgres full-text retrieval, passages ranked by relevance then authority (legislation over guidance), and first-class evidenced INSUFFICIENT_SOURCES refusals — zero embeddings or API keys required to run.
+- Engineered evidence-by-default: every mutation commits atomically with a hash-chained audit event; approvals bind to content hashes and void on data change; one click exports a self-contained evidence pack — figures, lineage, approvals, agent trace, and a fresh audit-chain verification.
 
 **AI/Tax Technology Consultant:**
 - Conceived and delivered a Big Four-standard internal-asset build: 13-phase programme from product discovery (market/gap analysis, personas, MoSCoW requirements) through architecture, security, and portfolio, with business case quantifying £0.8–2.2m annual value per client group.
